@@ -9,7 +9,7 @@
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>cliente</artifactId>
+    <artifactId>celula-servidor</artifactId>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

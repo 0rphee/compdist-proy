@@ -9,8 +9,9 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <modules>
-        <module>cliente</module>
         <module>nodo</module>
+        <module>celula-servidor</module>
+        <module>celula-solicitante</module>
     </modules>
 
     <properties>

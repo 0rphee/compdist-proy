@@ -3,7 +3,7 @@ package org.example;
 import java.io.*;
 import java.net.Socket;
 
-public class Cliente {
+public class CelulaSolicitante {
     public static void main(String[] args) {
         String host = "localhost";
         int puerto = 31010;
