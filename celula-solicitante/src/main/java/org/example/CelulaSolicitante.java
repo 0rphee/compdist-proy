@@ -4,21 +4,22 @@ import java.io.*;
 import java.net.Socket;
 
 public class CelulaSolicitante {
-    public static void main(String[] args) {
-        String host = "localhost";
-        int puerto = 31010;
+    private static final String HOST = "localhost";
 
-        try (Socket socket = new Socket(host, puerto)) {
+    public static void main(String[] args) {
+        if (args.length < 1) {
+            System.err.println("Usage: CelulaSolicitante <PORT>");
+        }
+        int port = Integer.parseInt(args[0]);
+
+        try (Socket socket = new Socket(HOST, port)) {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            in.lines().forEach((str) -> System.out.println("Mensaje del Nodo: " + str));
-
-            /*
             String mensaje;
             while ((mensaje = in.readLine()) != null) {
                 System.out.println("Mensaje del Nodo: " + mensaje);
             }
-            */
+
             System.out.println("Nodo desconectado, cerrando Cliente.");
         } catch (IOException e) {
             e.printStackTrace();

@@ -12,6 +12,7 @@
         <module>nodo</module>
         <module>celula-servidor</module>
         <module>celula-solicitante</module>
+        <module>shared-lib</module>
     </modules>
 
     <properties>
@@ -19,6 +20,9 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
+
+    <dependencies>
+    </dependencies>
 
     <build>
         <plugins>

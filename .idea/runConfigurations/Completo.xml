@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Completo" type="CompoundRunConfigurationType">
+    <toRun name="Nodos" type="CompoundRunConfigurationType" />
+    <toRun name="Servidores" type="CompoundRunConfigurationType" />
+    <toRun name="Solicitantes" type="CompoundRunConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>

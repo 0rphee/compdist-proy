@@ -6,11 +6,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Nodo {
-    private static final int PUERTO = 31010;
+    private static int PUERTO;
     private static AtomicInteger clientIdCounter = new AtomicInteger(1);
     private static ConcurrentHashMap<Integer, Socket> clientes = new ConcurrentHashMap<>();
 
     public static void main(String[] args) {
+        PUERTO = Integer.parseInt(args[0]);
+
         try (ServerSocket serverSocket = new ServerSocket(PUERTO)) {
             System.out.println("Nodo iniciado en el puerto " + PUERTO);
 
