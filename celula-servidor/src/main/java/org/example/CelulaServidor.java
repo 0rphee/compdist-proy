@@ -2,49 +2,53 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
+import java.util.Random;
 
 public class CelulaServidor {
     private static final String HOST = "localhost";
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, InterruptedException {
         if (args.length < 1) {
             System.err.println("Usage: CelulaServidor <PORT>");
         }
-        int port = Integer.parseInt(args[0]);
+        // TODO
+        // int port = Integer.parseInt(args[0]);
+        int port = Message.getRandomNodePort();
+        int delay = 5_000;
+        Thread.sleep(delay);
 
         Socket socket = new Socket(HOST, port);
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
 
         Message ident = Message.buildIdentify(Message.CellType.SERVER);
-        Messenger.send(out, ident);
 
-        Connection con = new Connection(socket, Messenger.read(in));
-        System.out.println("Conectado exitosamente: " + con);
+        DecoderEncoder.escribir(out, ident);
+        Message nodeIdentMsg = DecoderEncoder.leer(in);
+
+        if (nodeIdentMsg.getNumServicio() != Message.ServiceNumber.Identification) {
+            System.err.println("Número de servicio incorrecto, primer mensaje debió ser identificación: " + nodeIdentMsg.getNumServicio().toString());
+            System.exit(1);
+        }
+        if (DecoderEncoder.processIdentification(nodeIdentMsg) != Message.CellType.NODE) {
+            System.err.println("Conexión a identidad distinta a 'nodo'");
+            System.exit(1);
+        }
+        System.out.println("Conectado exitosamente a: " + HOST + ":" + port);
 
         while (true) {
-            Message req = Messenger.read(in);
-            double lhs = MessageBuilder.GetLhs(req);
-            double rhs = MessageBuilder.GetRhs(req);
-            double result = 0;
-            switch (req.msg[0]) {
-                case Message.RequestType.Add:
-                    result = lhs + rhs;
-                    break;
-                case Message.RequestType.Sub:
-                    result = lhs - rhs;
-                    break;
-                case Message.RequestType.Mul:
-                    result = lhs * rhs;
-                    break;
-                case Message.RequestType.Div:
-                    result = lhs / rhs;
-                    break;
-            }
+            Message req = DecoderEncoder.leer(in);
 
-            Messenger.send(out, MessageBuilder.Restultado(req, result));
-            System.out.println("Respondiendo a: " + req);
+            System.out.println("Recibiendo msj: \n" + req.toString());
+            if (req.getNumServicio() == Message.ServiceNumber.Request) {
+                int res = DecoderEncoder.processRequest(req);
+                Message respMsg = Message.buildResult(res, req.getHashMsg());
+                DecoderEncoder.escribir(out, respMsg);
+                System.out.println("Respondiendo con res: \n" + respMsg);
+                System.out.println("!!!!");
+            }
         }
 
     }
+
 }
