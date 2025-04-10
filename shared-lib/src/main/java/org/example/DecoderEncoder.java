@@ -5,12 +5,8 @@ import org.json.JSONObject;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
-
-import static org.example.Message.bytesToString;
 
 public class DecoderEncoder {
     public static byte[] sha256(byte[] bytesToHash) {
@@ -24,7 +20,7 @@ public class DecoderEncoder {
         return digest.digest(bytesToHash);
     }
 
-    public static void escribir(DataOutputStream dos, Message mensaje) throws IOException {
+    public static void writeMsg(DataOutputStream dos, Message mensaje) throws IOException {
         // 2 bytes
         dos.writeShort(mensaje.getNumServicio().toShort());
         // 2 bytes
@@ -37,16 +33,9 @@ public class DecoderEncoder {
         dos.writeInt(bytesInfo.length);
         // (variable) información/mensaje
         dos.write(bytesInfo);
-
-//        // TODO
-//        System.out.println("numservicio " + mensaje.getNumServicio());
-//        System.out.println("longitudhash " + mensaje.getHashMsg().length);
-//        System.out.println("hash " + Arrays.toString(mensaje.getHashMsg()));
-//        System.out.println("longitudInfo " + mensaje.getInformacion().length);
-//        System.out.println("infoMsg " + new String(, StandardCharsets.UTF_8));
     }
 
-    public static Message leer(DataInputStream dis) throws IOException {
+    public static Message readMsg(DataInputStream dis) throws IOException {
         // 2 bytes
         short numServicio = dis.readShort();
         // 2 bytes
@@ -60,25 +49,15 @@ public class DecoderEncoder {
         byte[] infoMsg = new byte[longitudInfo];
         dis.readFully(infoMsg);
 
-        // TODO
-//        System.out.println("numservicio " + numServicio);
-//        System.out.println("longitudhash " + longitudHash);
-//        System.out.println("hash " + Arrays.toString(hash));
-//        System.out.println("longitudInfo " + longitudInfo);
-//        System.out.println("infoMsg " + new String(infoMsg, StandardCharsets.UTF_8));
-
         return new Message(Message.ServiceNumber.fromShort(numServicio), hash, infoMsg);
     }
 
     public static int processRequest(Message msg) throws RuntimeException {
-//        System.out.println("processRequest:");
-//        System.out.println(msg.toString());
-
         JSONObject json = new JSONObject(new String(msg.getInformacion()));
         String op = json.getString("op");
         int n1 = json.getInt("n1");
         int n2 = json.getInt("n2");
-        return switch (Message.OperationType.fromString(op)) {
+        return switch (Message.OperationType.fromString(op).orElseThrow(() -> new RuntimeException("Division by zero: " + n1 + "/" + n2))) {
             case Message.OperationType.ADD:
                 yield n1 + n2;
             case Message.OperationType.SUB:
@@ -93,17 +72,11 @@ public class DecoderEncoder {
     }
 
     public static int processResult(Message msg) {
-//        System.out.println("processResult:");
-//        System.out.println(msg.toString());
-
         JSONObject json = new JSONObject(new String(msg.getInformacion()));
         return json.getInt("res");
     }
 
     public static Message.CellType processIdentification(Message msg) {
-//        System.out.println("processIdentification:");
-//        System.out.println(msg.toString());
-
         JSONObject json = new JSONObject(new String(msg.getInformacion()));
         return Message.CellType.fromString(json.getString("t"));
     }

@@ -2,7 +2,6 @@ package org.example;
 
 import java.io.*;
 import java.net.Socket;
-import java.util.Random;
 
 public class CelulaServidor {
     private static final String HOST = "localhost";
@@ -21,10 +20,10 @@ public class CelulaServidor {
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
 
-        Message ident = Message.buildIdentify(Message.CellType.SERVER);
+        Message identMsg = Message.buildIdentify(Message.CellType.SERVER);
 
-        DecoderEncoder.escribir(out, ident);
-        Message nodeIdentMsg = DecoderEncoder.leer(in);
+        DecoderEncoder.writeMsg(out, identMsg);
+        Message nodeIdentMsg = DecoderEncoder.readMsg(in);
 
         if (nodeIdentMsg.getNumServicio() != Message.ServiceNumber.Identification) {
             System.err.println("Número de servicio incorrecto, primer mensaje debió ser identificación: " + nodeIdentMsg.getNumServicio().toString());
@@ -37,13 +36,13 @@ public class CelulaServidor {
         System.out.println("Conectado exitosamente a: " + HOST + ":" + port);
 
         while (true) {
-            Message req = DecoderEncoder.leer(in);
+            Message req = DecoderEncoder.readMsg(in);
 
-            System.out.println("Recibiendo msj: \n" + req.toString());
+            System.out.println("Recibiendo msj: \n" + req);
             if (req.getNumServicio() == Message.ServiceNumber.Request) {
                 int res = DecoderEncoder.processRequest(req);
                 Message respMsg = Message.buildResult(res, req.getHashMsg());
-                DecoderEncoder.escribir(out, respMsg);
+                DecoderEncoder.writeMsg(out, respMsg);
                 System.out.println("Respondiendo con res: \n" + respMsg);
                 System.out.println("!!!!");
             }

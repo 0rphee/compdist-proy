@@ -12,15 +12,16 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.text.ParseException;
 
 public class CelulaSolicitante extends Application {
     private static final String HOST = "localhost";
 
-    private TextField operationField;
+    private Button[] operationButtons;
     private TextField operand1Field;
     private TextField operand2Field;
-    private Button sendButton;
-    private TextArea responseArea;
+    private TextField resultArea;
+    private TextArea logArea;
 
     private Socket socket;
     private DataOutputStream out;
@@ -35,35 +36,42 @@ public class CelulaSolicitante extends Application {
         grid.setHgap(10);
 
         // UI Components
-        operationField = new TextField();
+        operationButtons = new Button[]{new Button("+"), new Button("-"), new Button("*"), new Button("/")};
         operand1Field = new TextField();
         operand2Field = new TextField();
-        sendButton = new Button("Enviar Solicitud");
-        responseArea = new TextArea();
-        responseArea.setEditable(false);
-        responseArea.setWrapText(true);
+        resultArea = new TextField();
+        logArea = new TextArea();
+
+        resultArea.setEditable(false);
+        logArea.setEditable(false);
+        logArea.setWrapText(true);
+
+        GridPane gridOperationButtons = new GridPane();
+        gridOperationButtons.setHgap(10);
 
         // Layout
-        grid.add(new Label("Operación (+ - * /):"), 0, 0);
-        grid.add(operationField, 1, 0);
-        grid.add(new Label("Operando 1:"), 0, 1);
-        grid.add(operand1Field, 1, 1);
-        grid.add(new Label("Operando 2:"), 0, 2);
-        grid.add(operand2Field, 1, 2);
-        grid.add(sendButton, 1, 3);
-        grid.add(new ScrollPane(responseArea), 0, 4, 2, 1);
+        gridOperationButtons.addRow(0, operationButtons);
+        grid.addRow(0, new Label("Operación:"), gridOperationButtons);
+        grid.addRow(1, new Label("Operando 1:"), operand1Field);
+        grid.addRow(2, new Label("Operando 2:"), operand2Field);
+        grid.add(new Label("Resultado"), 0, 3, 2, 1);
+        grid.add(resultArea, 0, 4, 2, 1);
+        grid.add(new Label("Logs"), 0, 5, 2, 1);
+        grid.add(new ScrollPane(logArea), 0, 6, 2, 1);
 
         Scene scene = new Scene(grid, 500, 400);
         primaryStage.setScene(scene);
 
-        // Disable button until connected
-        sendButton.setDisable(true);
+        // Disable buttons until connected
+        for (Button btn : operationButtons) {
+            btn.setDisable(true);
+        }
 
         // Setup connection and listeners
         setupConnection();
         setupEventHandlers();
 
-        // Handle window close
+        // When window is closed
         primaryStage.setOnCloseRequest(event -> {
             try {
                 if (socket != null) socket.close();
@@ -88,21 +96,24 @@ public class CelulaSolicitante extends Application {
                 out = new DataOutputStream(socket.getOutputStream());
                 in = new DataInputStream(socket.getInputStream());
 
-                // Send identification
+                // Identify and check node identification
                 Message ident = Message.buildIdentify(Message.CellType.SERVER);
-                DecoderEncoder.escribir(out, ident);
+                DecoderEncoder.writeMsg(out, ident);
 
-                // Verify server response
-                Message response = DecoderEncoder.leer(in);
+                Message response = DecoderEncoder.readMsg(in);
                 if (response.getNumServicio() != Message.ServiceNumber.Identification ||
                         DecoderEncoder.processIdentification(response) != Message.CellType.NODE) {
                     log("Error de identificación del servidor");
                     return;
                 }
 
-                Platform.runLater(() -> sendButton.setDisable(false));
-                log("Conexión establecida exitosamente!");
+                Platform.runLater(() -> {
+                    for (Button btn : operationButtons) {
+                        btn.setDisable(false);
+                    }
+                });
 
+                log("Conexión establecida exitosamente!");
                 // Start response listener
                 new Thread(this::listenForResponses).start();
 
@@ -113,44 +124,47 @@ public class CelulaSolicitante extends Application {
     }
 
     private void setupEventHandlers() {
-        sendButton.setOnAction(event -> new Thread(() -> {
-            try {
-                Message.OperationType op = Message.OperationType.fromString(
-                        operationField.getText().trim()
-                );
-                int n1 = Integer.parseInt(operand1Field.getText().trim());
-                int n2 = Integer.parseInt(operand2Field.getText().trim());
+        for (Button btn : operationButtons) {
+            setupButtonEventHandler(btn);
+        }
+    }
 
-                if (op == null) {
-                    log("Operación no válida");
-                    return;
-                }
+    private void setupButtonEventHandler(Button btn) {
+        btn.setOnAction(event -> new Thread(() -> {
+                    try {
+                        Message.OperationType op = Message.OperationType.fromString(
+                                btn.getText().trim()
+                        ).orElseThrow(() -> new ParseException(btn.getText(), 0));
+                        int n1 = Integer.parseInt(operand1Field.getText().trim());
+                        int n2 = Integer.parseInt(operand2Field.getText().trim());
 
-                if (op == Message.OperationType.DIV && n2 == 0) {
-                    log("No se puede dividir por cero");
-                    return;
-                }
+                        if (op == Message.OperationType.DIV && n2 == 0) {
+                            log("No se puede dividir por cero");
+                            return;
+                        }
 
-                Message request = Message.buildRequest(op, n1, n2);
-                synchronized (out) {
-                    DecoderEncoder.escribir(out, request);
-                }
-                log("Solicitud enviada: " + request);
+                        Message request = Message.buildRequest(op, n1, n2);
+                        DecoderEncoder.writeMsg(out, request);
 
-            } catch (NumberFormatException e) {
-                log("Los operandos deben ser números enteros");
-            } catch (IOException e) {
-                log("Error enviando solicitud: " + e.getMessage());
-            }
-        }).start());
+                        log("Solicitud enviada: " + request);
+                    } catch (ParseException e) {
+                        // should never happen: operations come from hard-coded buttons
+                        log("Operación no válida");
+                    } catch (NumberFormatException e) {
+                        log("Los operandos deben ser números enteros");
+                    } catch (IOException e) {
+                        log("Error enviando solicitud: " + e.getMessage());
+                    }
+                }).start()
+        );
     }
 
     private void listenForResponses() {
         try {
             while (!socket.isClosed()) {
-                Message response = DecoderEncoder.leer(in);
+                Message response = DecoderEncoder.readMsg(in);
                 if (response.getNumServicio() == Message.ServiceNumber.Result) {
-                    log("Resultado recibido: " + response);
+                    writeRes("Resultado recibido: " + DecoderEncoder.processResult(response));
                 }
             }
         } catch (IOException e) {
@@ -158,9 +172,15 @@ public class CelulaSolicitante extends Application {
         }
     }
 
+    private void writeRes(String message) {
+        Platform.runLater(() ->
+                resultArea.setText(message)
+        );
+    }
+
     private void log(String message) {
         Platform.runLater(() ->
-                responseArea.appendText(message + "\n")
+                logArea.appendText(message + "\n")
         );
     }
 
@@ -168,3 +188,4 @@ public class CelulaSolicitante extends Application {
         launch(args);
     }
 }
+

@@ -4,6 +4,7 @@ import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.Random;
 
 public class Message {
@@ -111,18 +112,18 @@ public class Message {
         MUL,
         DIV;
 
-        public static OperationType fromString(String str) {
+        public static Optional<OperationType> fromString(String str) {
             return switch (str) {
                 case "+":
-                    yield OperationType.ADD;
+                    yield Optional.of(OperationType.ADD);
                 case "-":
-                    yield OperationType.SUB;
+                    yield Optional.of(OperationType.SUB);
                 case "*":
-                    yield OperationType.MUL;
+                    yield Optional.of(OperationType.MUL);
                 case "/":
-                    yield OperationType.DIV;
+                    yield Optional.of(OperationType.DIV);
                 default:
-                    throw new RuntimeException("Unrecognized operation: " + str);
+                    yield Optional.empty();
             };
         }
 
@@ -176,7 +177,6 @@ public class Message {
     public static Message buildIdentify(CellType thisCellType) {
         JSONObject json = new JSONObject();
         String jsonString = json.put("t", thisCellType.toSingleString()).toString();
-//        System.out.println("jsonstring"+ jsonString);
         byte[] jsonArr = jsonString.getBytes(StandardCharsets.UTF_8);
         return new Message(ServiceNumber.Identification, DecoderEncoder.sha256(jsonArr), jsonArr);
     }
@@ -197,12 +197,6 @@ public class Message {
         return new Message(ServiceNumber.Result, requestHash, json.toString().getBytes());
     }
 
-    //
-//    private ServiceNumber numServicio;
-//    // hash del mensaje original (solicitud)
-//    private byte[] hashMsg;
-//    // información del mensaje (mensaje en sí)
-//    private byte[] informacion;
     public String toString() {
         String s = "Message: " +
                 " ServiceNumber: " + this.numServicio.toString() +
@@ -216,6 +210,7 @@ public class Message {
     }
 
     static final int[] nodePorts = {31010, 31011, 31012, 31013};
+
     public static int getRandomNodePort() {
         Random random = new Random();
         int randomIndex = random.nextInt(Message.nodePorts.length);
