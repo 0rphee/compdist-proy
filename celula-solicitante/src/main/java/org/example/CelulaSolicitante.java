@@ -13,6 +13,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.text.ParseException;
+import java.util.Arrays;
+import java.util.Optional;
 
 public class CelulaSolicitante extends Application {
     private static final String HOST = "localhost";
@@ -26,6 +28,7 @@ public class CelulaSolicitante extends Application {
     private Socket socket;
     private DataOutputStream out;
     private DataInputStream in;
+    private Optional<Message> lastRequestMsg = Optional.empty();
 
     @Override
     public void start(Stage primaryStage) {
@@ -92,21 +95,22 @@ public class CelulaSolicitante extends Application {
                 int port = Message.getRandomNodePort();
                 log("Conectando a " + HOST + ":" + port + "...");
 
-                socket = new Socket(HOST, port);
-                out = new DataOutputStream(socket.getOutputStream());
-                in = new DataInputStream(socket.getInputStream());
+                this.socket = new Socket(HOST, port);
+                this.out = new DataOutputStream(socket.getOutputStream());
+                this.in = new DataInputStream(socket.getInputStream());
 
                 // Identify and check node identification
-                Message ident = Message.buildIdentify(Message.CellType.SERVER);
-                DecoderEncoder.writeMsg(out, ident);
+                Message ident = Message.buildIdentify(Message.ProgramType.SERVER);
+                DecoderEncoder.writeMsg(this.out, ident);
 
-                Message response = DecoderEncoder.readMsg(in);
+                Message response = DecoderEncoder.readMsg(this.in);
                 if (response.getNumServicio() != Message.ServiceNumber.Identification ||
-                        DecoderEncoder.processIdentification(response) != Message.CellType.NODE) {
+                        DecoderEncoder.processIdentification(response) != Message.ProgramType.NODE) {
                     log("Error de identificación del servidor");
                     return;
                 }
 
+                // if the connection is correctly set up, we can request results
                 Platform.runLater(() -> {
                     for (Button btn : operationButtons) {
                         btn.setDisable(false);
@@ -132,6 +136,8 @@ public class CelulaSolicitante extends Application {
     private void setupButtonEventHandler(Button btn) {
         btn.setOnAction(event -> new Thread(() -> {
                     try {
+                        // we get the string from the button text because this function
+                        // is applied to each button: + - * /
                         Message.OperationType op = Message.OperationType.fromString(
                                 btn.getText().trim()
                         ).orElseThrow(() -> new ParseException(btn.getText(), 0));
@@ -139,12 +145,14 @@ public class CelulaSolicitante extends Application {
                         int n2 = Integer.parseInt(operand2Field.getText().trim());
 
                         if (op == Message.OperationType.DIV && n2 == 0) {
-                            log("No se puede dividir por cero");
+                            log("No se puede dividir entre cero");
                             return;
                         }
 
                         Message request = Message.buildRequest(op, n1, n2);
                         DecoderEncoder.writeMsg(out, request);
+                        this.lastRequestMsg = Optional.of(request);
+                        this.resultArea.setText("");
 
                         log("Solicitud enviada: " + request);
                     } catch (ParseException e) {
@@ -159,12 +167,23 @@ public class CelulaSolicitante extends Application {
         );
     }
 
+    // listen to responses, and
     private void listenForResponses() {
         try {
-            while (!socket.isClosed()) {
-                Message response = DecoderEncoder.readMsg(in);
-                if (response.getNumServicio() == Message.ServiceNumber.Result) {
-                    writeRes("Resultado recibido: " + DecoderEncoder.processResult(response));
+            while (!this.socket.isClosed()) {
+                Message responseMsg = DecoderEncoder.readMsg(this.in);
+
+                // check that if there's a pending answer, the last received msg is a result, and that the hashes of
+                // the last request and the response we just received are the same:
+                // if so, the result will be displayed in the result box
+                boolean condition = lastRequestMsg.map(msg ->
+                        (responseMsg.getNumServicio() == Message.ServiceNumber.Result)
+                                &&
+                                Arrays.equals(responseMsg.getHashMsg(), msg.getHashMsg())
+                ).orElse(false);
+                if (condition) {
+                    writeRes("Resultado recibido: " + DecoderEncoder.processResult(responseMsg));
+                    this.lastRequestMsg = Optional.empty();
                 }
             }
         } catch (IOException e) {

@@ -39,11 +39,11 @@ public class Nodo {
                 Socket socket = new Socket(HOST, port);
                 DataInputStream in = new DataInputStream(socket.getInputStream());
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DecoderEncoder.writeMsg(out, Message.buildIdentify(Message.CellType.NODE));
+                DecoderEncoder.writeMsg(out, Message.buildIdentify(Message.ProgramType.NODE));
 
                 // first msg received should be and identification msg
-                Message.CellType cellType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
-                ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(cellType, socket, in, out);
+                Message.ProgramType programType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
+                ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(programType, socket, in, out);
                 connectionHandler.addConnection(currentNodeConn);
 
                 Thread currNodeConnectionThread = new Thread(() -> handle(connectionHandler, currentNodeConn));
@@ -56,19 +56,20 @@ public class Nodo {
         Thread acceptingThread = new Thread(() -> {
             while (true) {
                 try {
+                    // preparation to identify with the new connection
                     Socket socket = server.accept();
                     DataInputStream in = new DataInputStream(socket.getInputStream());
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DecoderEncoder.writeMsg(out, Message.buildIdentify(Message.CellType.NODE));
+                    DecoderEncoder.writeMsg(out, Message.buildIdentify(Message.ProgramType.NODE));
 
                     // first msg received should be and identification msg
-                    Message.CellType cellType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
-                    ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(cellType, socket, in, out);
+                    Message.ProgramType programType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
+                    ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(programType, socket, in, out);
                     connectionHandler.addConnection(currentNodeConn);
 
                     Thread handle = new Thread(() -> handle(connectionHandler, currentNodeConn));
                     handle.start();
-                    System.out.println("A client or node connected to this node: " + socket.getPort());
+                    System.out.println("New connection received: " + socket.getPort() + ", " + programType);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -88,7 +89,7 @@ public class Nodo {
                 Message msg = connection.readMsg();
                 System.out.println(msg);
                 switch (connection.getType()) {
-                    case Message.CellType.NODE:
+                    case Message.ProgramType.NODE:
                         // we don't send to other nodes because currently all nodes are connected with each other
                         // in a larger data field (more nodes, with some not connected to others) this is will not work
                         connHandler.sendToClients(msg);

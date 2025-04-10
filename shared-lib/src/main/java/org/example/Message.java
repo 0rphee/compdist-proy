@@ -31,7 +31,8 @@ public class Message {
             solicitud, conteniendo el resultado de la operación aritmética.
      */
 
-    public enum CellType {
+    // used to facilitate operations regarding the type of the entity/program in the identification phase
+    public enum ProgramType {
         NODE() {
             @Override
             public String toSingleString() {
@@ -53,16 +54,12 @@ public class Message {
 
         public abstract String toSingleString();
 
-        public static CellType fromString(String str) {
+        public static Optional<ProgramType> fromString(String str) {
             return switch (str) {
-                case "N":
-                    yield CellType.NODE;
-                case "S":
-                    yield CellType.SERVER;
-                case "O":
-                    yield CellType.SOLICITANT;
-                default:
-                    throw new RuntimeException("Invalid string in identification message: " + str);
+                case "N" -> Optional.of(ProgramType.NODE);
+                case "S" -> Optional.of(ProgramType.SERVER);
+                case "O" -> Optional.of(ProgramType.SOLICITANT);
+                default -> Optional.empty();
             };
         }
 
@@ -75,6 +72,7 @@ public class Message {
         }
     }
 
+    // used to facilitate operations regarding the service number of each message (ex. serializing/deserializing)
     public enum ServiceNumber {
         Identification,
         Request,
@@ -88,12 +86,12 @@ public class Message {
             };
         }
 
-        public static ServiceNumber fromShort(short number) {
+        public static Optional<ServiceNumber> fromShort(short number) {
             return switch (number) {
-                case 0 -> ServiceNumber.Identification;
-                case 1 -> ServiceNumber.Request;
-                case 2 -> ServiceNumber.Result;
-                default -> throw new IllegalStateException("Unexpected service number: " + number);
+                case 0 -> Optional.of(ServiceNumber.Identification);
+                case 1 -> Optional.of(ServiceNumber.Request);
+                case 2 -> Optional.of(ServiceNumber.Result);
+                default -> Optional.empty();
             };
         }
 
@@ -114,16 +112,11 @@ public class Message {
 
         public static Optional<OperationType> fromString(String str) {
             return switch (str) {
-                case "+":
-                    yield Optional.of(OperationType.ADD);
-                case "-":
-                    yield Optional.of(OperationType.SUB);
-                case "*":
-                    yield Optional.of(OperationType.MUL);
-                case "/":
-                    yield Optional.of(OperationType.DIV);
-                default:
-                    yield Optional.empty();
+                case "+" -> Optional.of(OperationType.ADD);
+                case "-" -> Optional.of(OperationType.SUB);
+                case "*" -> Optional.of(OperationType.MUL);
+                case "/" -> Optional.of(OperationType.DIV);
+                default -> Optional.empty();
             };
         }
 
@@ -137,11 +130,14 @@ public class Message {
         }
     }
 
-    // número de servicio de solicitud
+    // número de servicio de solicitud: Identification, Request, Result
     private ServiceNumber numServicio;
-    // hash del mensaje original (solicitud)
+    // hash del mensaje original (solicitud), usado para identificar respuestas
     private byte[] hashMsg;
-    // información del mensaje (mensaje en sí)
+    // información del mensaje (mensaje en sí) en JSON
+    // Identification: tipo de conexión (nodo, servidor, solicitante)
+    // Request: operador y operandos
+    // Result: resultado
     private byte[] informacion;
 
     public byte[] getHashMsg() {
@@ -174,9 +170,9 @@ public class Message {
         this.informacion = informacion;
     }
 
-    public static Message buildIdentify(CellType thisCellType) {
+    public static Message buildIdentify(ProgramType thisProgramType) {
         JSONObject json = new JSONObject();
-        String jsonString = json.put("t", thisCellType.toSingleString()).toString();
+        String jsonString = json.put("t", thisProgramType.toSingleString()).toString();
         byte[] jsonArr = jsonString.getBytes(StandardCharsets.UTF_8);
         return new Message(ServiceNumber.Identification, DecoderEncoder.sha256(jsonArr), jsonArr);
     }
@@ -194,9 +190,10 @@ public class Message {
     public static Message buildResult(int res, byte[] requestHash) {
         JSONObject json = new JSONObject();
         json.put("res", res);
-        return new Message(ServiceNumber.Result, requestHash, json.toString().getBytes());
+        return new Message(ServiceNumber.Result, requestHash, json.toString().getBytes(StandardCharsets.UTF_8));
     }
 
+    // general helper methods
     public String toString() {
         String s = "Message: " +
                 " ServiceNumber: " + this.numServicio.toString() +

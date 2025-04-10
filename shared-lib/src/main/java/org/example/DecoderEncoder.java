@@ -49,7 +49,11 @@ public class DecoderEncoder {
         byte[] infoMsg = new byte[longitudInfo];
         dis.readFully(infoMsg);
 
-        return new Message(Message.ServiceNumber.fromShort(numServicio), hash, infoMsg);
+        return new Message(
+                Message.ServiceNumber.fromShort(numServicio).orElseThrow(
+                        () -> new IllegalStateException("Unexpected service number: " + numServicio))
+                , hash
+                , infoMsg);
     }
 
     public static int processRequest(Message msg) throws RuntimeException {
@@ -76,9 +80,11 @@ public class DecoderEncoder {
         return json.getInt("res");
     }
 
-    public static Message.CellType processIdentification(Message msg) {
-        JSONObject json = new JSONObject(new String(msg.getInformacion()));
-        return Message.CellType.fromString(json.getString("t"));
+    public static Message.ProgramType processIdentification(Message msg) {
+        String value = new JSONObject(new String(msg.getInformacion())).getString("t");
+        return Message.ProgramType.fromString(value).orElseThrow(
+                () -> new RuntimeException("Invalid string in identification message: " + value)
+        );
     }
 
 }

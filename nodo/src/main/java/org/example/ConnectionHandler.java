@@ -4,15 +4,16 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ConnectionHandler {
-    private final HashSet<Connection> nodeConnections;
-    private final HashSet<Connection> clientConnections;
+    private final Set<Connection> nodeConnections;
+    private final Set<Connection> clientConnections;
 
     public ConnectionHandler() {
-        this.nodeConnections = new HashSet<>();
-        this.clientConnections = new HashSet<>();
+        this.nodeConnections = ConcurrentHashMap.newKeySet();
+        this.clientConnections = ConcurrentHashMap.newKeySet();
     }
 
     public void sendToClients(Message msg) throws IOException {
@@ -46,20 +47,20 @@ public class ConnectionHandler {
     }
 
     public static final class Connection {
-        private final Message.CellType type;
+        private final Message.ProgramType type;
         private final Socket socket;
         private final DataOutputStream dataOutputStream;
         private final DataInputStream dataInputStream;
 
-        public Connection(Socket socket, Message.CellType celltype) throws IOException {
-            this.type = celltype;
+        public Connection(Socket socket, Message.ProgramType programType) throws IOException {
+            this.type = programType;
             this.socket = socket;
             this.dataInputStream = new DataInputStream(socket.getInputStream());
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
         }
 
-        public Connection(Message.CellType celltype, Socket socket, DataInputStream dis, DataOutputStream dos) throws IOException {
-            this.type = celltype;
+        public Connection(Message.ProgramType programType, Socket socket, DataInputStream dis, DataOutputStream dos) throws IOException {
+            this.type = programType;
             this.socket = socket;
             this.dataInputStream = dis;
             this.dataOutputStream = dos;
@@ -77,7 +78,7 @@ public class ConnectionHandler {
             this.socket.close();
         }
 
-        public Message.CellType getType() {
+        public Message.ProgramType getType() {
             return this.type;
         }
     }

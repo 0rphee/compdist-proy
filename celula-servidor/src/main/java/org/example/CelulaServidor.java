@@ -16,12 +16,13 @@ public class CelulaServidor {
         int delay = 5_000;
         Thread.sleep(delay);
 
+        // preparation for identification with node
         Socket socket = new Socket(HOST, port);
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
 
-        Message identMsg = Message.buildIdentify(Message.CellType.SERVER);
-
+        // identification between cell and node
+        Message identMsg = Message.buildIdentify(Message.ProgramType.SERVER);
         DecoderEncoder.writeMsg(out, identMsg);
         Message nodeIdentMsg = DecoderEncoder.readMsg(in);
 
@@ -29,7 +30,7 @@ public class CelulaServidor {
             System.err.println("Número de servicio incorrecto, primer mensaje debió ser identificación: " + nodeIdentMsg.getNumServicio().toString());
             System.exit(1);
         }
-        if (DecoderEncoder.processIdentification(nodeIdentMsg) != Message.CellType.NODE) {
+        if (DecoderEncoder.processIdentification(nodeIdentMsg) != Message.ProgramType.NODE) {
             System.err.println("Conexión a identidad distinta a 'nodo'");
             System.exit(1);
         }
