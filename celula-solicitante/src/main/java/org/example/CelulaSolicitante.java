@@ -152,7 +152,6 @@ public class CelulaSolicitante extends Application {
                         Message request = Message.buildRequest(op, n1, n2);
                         DecoderEncoder.writeMsg(out, request);
                         this.lastRequestMsg = Optional.of(request);
-                        this.resultArea.setText("");
 
                         log("Solicitud enviada: " + request);
                     } catch (ParseException e) {
