@@ -1,7 +1,8 @@
 package org.example;
 
-import org.json.JSONObject;
+import org.javatuples.Pair;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -9,23 +10,16 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 public class DecoderEncoder {
-    public static byte[] sha256(byte[] bytesToHash) {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            // should never happen
-            throw new RuntimeException(e);
-        }
-        return digest.digest(bytesToHash);
-    }
-
-    public static void writeMsg(DataOutputStream dos, Message mensaje) throws IOException {
-        // 2 bytes
-        dos.writeShort(mensaje.getNumServicio().toShort());
-        // 2 bytes
-        byte[] bytesInfo = mensaje.getInformacion();
-        byte[] bytesHash = mensaje.getHashMsg();
+    public static void writeMsg(DataOutputStream dos, Message msg) throws IOException {
+        // 2 bytes destinatario
+        dos.writeShort(msg.getReceiver().toShort());
+        // 8 bytes huella identificación de quien envía
+        dos.write(msg.getSenderIdentifier());
+        // 2 bytes número de servicio
+        dos.writeShort(msg.getNumServicio().toShort());
+        byte[] bytesInfo = msg.getInformacion();
+        byte[] bytesHash = msg.getHash();
+        // 2 bytes tamaño hash
         dos.writeShort(bytesHash.length);
         // (variable) hash evento
         dos.write(bytesHash);
@@ -33,10 +27,17 @@ public class DecoderEncoder {
         dos.writeInt(bytesInfo.length);
         // (variable) información/mensaje
         dos.write(bytesInfo);
+
+        System.out.println("msgggg "+ msg.toString());
     }
 
     public static Message readMsg(DataInputStream dis) throws IOException {
-        // 2 bytes
+        // 2 bytes destinatario
+        short destinatario = dis.readShort();
+        // 8 bytes huella identificación de quien envía
+        byte[] identifier = new byte[8];
+        dis.readFully(identifier);
+        // 2 bytes número de servicio
         short numServicio = dis.readShort();
         // 2 bytes
         short longitudHash = dis.readShort();
@@ -50,40 +51,50 @@ public class DecoderEncoder {
         dis.readFully(infoMsg);
 
         return new Message(
-                Message.ServiceNumber.fromShort(numServicio).orElseThrow(
-                        () -> new IllegalStateException("Unexpected service number: " + numServicio))
+                ProgramType.fromShort(destinatario).orElseThrow(
+                        () -> new IllegalStateException("Unexpected receiver number: " + destinatario))
+                , identifier
+                , ServiceNumber.fromShort(numServicio).orElseThrow(
+                () -> new IllegalStateException("Unexpected service number: " + numServicio))
                 , hash
                 , infoMsg);
     }
 
-    public static int processRequest(Message msg) throws RuntimeException {
-        JSONObject json = new JSONObject(new String(msg.getInformacion()));
-        String op = json.getString("op");
-        int n1 = json.getInt("n1");
-        int n2 = json.getInt("n2");
-        return switch (Message.OperationType.fromString(op).orElseThrow(() -> new RuntimeException("Division by zero: " + n1 + "/" + n2))) {
-            case Message.OperationType.ADD:
+    public static int processRequest(Message msg) throws RuntimeException, IOException {
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(msg.getInformacion()));
+        int n1 = in.readInt();
+        int n2 = in.readInt();
+        return switch (msg.getNumServicio()) {
+            case ServiceNumber.Addition:
                 yield n1 + n2;
-            case Message.OperationType.SUB:
+            case ServiceNumber.Subtraction:
                 yield n1 - n2;
-            case Message.OperationType.MUL:
+            case ServiceNumber.Multiplication:
                 yield n1 * n2;
-            case Message.OperationType.DIV:
+            case ServiceNumber.Division:
                 if (n2 == 0)
                     throw new RuntimeException("Division by zero: " + n1 + "/" + n2);
                 yield n1 / n2;
+            default:
+                throw new RuntimeException("Invalid service number for request.");
         };
     }
 
-    public static int processResult(Message msg) {
-        JSONObject json = new JSONObject(new String(msg.getInformacion()));
-        return json.getInt("res");
+    public static Pair<byte[], Integer> processResult(Message msg) throws IOException {
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(msg.getInformacion()));
+        // 2 bytes
+        short hashLen = dis.readShort();
+        // variable
+        byte[] requestEventHash = new byte[hashLen];
+        dis.readFully(requestEventHash);
+        int res = dis.readInt();
+        return new Pair<byte[], Integer>(requestEventHash, res);
     }
 
-    public static Message.ProgramType processIdentification(Message msg) {
-        String value = new JSONObject(new String(msg.getInformacion())).getString("t");
-        return Message.ProgramType.fromString(value).orElseThrow(
-                () -> new RuntimeException("Invalid string in identification message: " + value)
+    public static ProgramType processIdentification(Message msg) {
+        byte value = msg.getInformacion()[0];
+        return ProgramType.fromByte(value).orElseThrow(
+                () -> new RuntimeException("Invalid byte in identification message: " + value)
         );
     }
 

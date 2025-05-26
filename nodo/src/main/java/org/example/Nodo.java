@@ -8,8 +8,16 @@ import java.util.Random;
 
 public class Nodo {
     private static final String HOST = "localhost";
+    private byte[] identifier;
+
+    Nodo(){}
 
     public static void main(String[] args) throws InterruptedException {
+        Nodo nodo = new Nodo();
+        nodo.start(args);
+    }
+
+    public void start(String[] args) throws InterruptedException {
         if (args.length < 1) {
             System.err.println("Usage: CelulaSolicitante <PORT>");
         }
@@ -20,7 +28,7 @@ public class Nodo {
         // int[] portsavailable
         ConnectionHandler connectionHandler = new ConnectionHandler();
 
-        System.out.println("PORTS: " + Arrays.toString(Message.nodePorts));
+        System.out.println("PORTS: " + Arrays.toString(Utils.nodePorts));
 
         /* Random delay to enable Node sync on startup */
         long delay = new Random().nextLong(1, 15) * 300 + 400;
@@ -29,9 +37,10 @@ public class Nodo {
 
         ServerSocket server = createServerSocket();
         System.out.println("Node escuchando en " + server.getInetAddress() + ":" + server.getLocalPort() + "\n");
+        this.identifier = Utils.createIdentifier(HOST, server.getLocalPort());
 
         // connect to other nodes
-        for (int port : Message.nodePorts) {
+        for (int port : Utils.nodePorts) {
             if (port == server.getLocalPort())
                 continue;
             try {
@@ -39,10 +48,10 @@ public class Nodo {
                 Socket socket = new Socket(HOST, port);
                 DataInputStream in = new DataInputStream(socket.getInputStream());
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                DecoderEncoder.writeMsg(out, Message.buildIdentify(Message.ProgramType.NODE));
+                DecoderEncoder.writeMsg(out, Message.buildIdentify(ProgramType.NODE, identifier, ProgramType.NODE));
 
                 // first msg received should be and identification msg
-                Message.ProgramType programType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
+                ProgramType programType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
                 ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(programType, socket, in, out);
                 connectionHandler.addConnection(currentNodeConn);
 
@@ -60,10 +69,10 @@ public class Nodo {
                     Socket socket = server.accept();
                     DataInputStream in = new DataInputStream(socket.getInputStream());
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-                    DecoderEncoder.writeMsg(out, Message.buildIdentify(Message.ProgramType.NODE));
+                    DecoderEncoder.writeMsg(out, Message.buildIdentify(ProgramType.NODE, identifier, ProgramType.SERVER));
 
                     // first msg received should be and identification msg
-                    Message.ProgramType programType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
+                    ProgramType programType = DecoderEncoder.processIdentification(DecoderEncoder.readMsg(in));
                     ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(programType, socket, in, out);
                     connectionHandler.addConnection(currentNodeConn);
 
@@ -89,7 +98,7 @@ public class Nodo {
                 Message msg = connection.readMsg();
                 System.out.println(msg);
                 switch (connection.getType()) {
-                    case Message.ProgramType.NODE:
+                    case ProgramType.NODE:
                         // we don't send to other nodes because currently all nodes are connected with each other
                         // in a larger data field (more nodes, with some not connected to others) this is will not work
                         connHandler.sendToClients(msg);
@@ -112,7 +121,7 @@ public class Nodo {
     }
 
     private static ServerSocket createServerSocket() {
-        for (int port : Message.nodePorts) {
+        for (int port : Utils.nodePorts) {
             try {
                 return new ServerSocket(port);
             } catch (IOException ignored) {

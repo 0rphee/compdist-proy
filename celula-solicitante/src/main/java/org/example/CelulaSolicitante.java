@@ -18,6 +18,7 @@ import java.util.Optional;
 
 public class CelulaSolicitante extends Application {
     private static final String HOST = "localhost";
+    private static byte[] identifier;
 
     private Button[] operationButtons;
     private TextField operand1Field;
@@ -92,7 +93,7 @@ public class CelulaSolicitante extends Application {
                 // Initial delay
                 Thread.sleep(5000);
 
-                int port = Message.getRandomNodePort();
+                int port = Utils.getRandomNodePort();
                 log("Conectando a " + HOST + ":" + port + "...");
 
                 this.socket = new Socket(HOST, port);
@@ -100,13 +101,13 @@ public class CelulaSolicitante extends Application {
                 this.in = new DataInputStream(socket.getInputStream());
 
                 // Identify and check node identification
-                Message ident = Message.buildIdentify(Message.ProgramType.SERVER);
+                Message ident = Message.buildIdentify(ProgramType.SOLICITANT, identifier,  ProgramType.NODE);
                 DecoderEncoder.writeMsg(this.out, ident);
 
                 Message response = DecoderEncoder.readMsg(this.in);
-                if (response.getNumServicio() != Message.ServiceNumber.Identification ||
-                        DecoderEncoder.processIdentification(response) != Message.ProgramType.NODE) {
-                    log("Error de identificación del servidor");
+                if (response.getNumServicio() != ServiceNumber.Identification ||
+                        DecoderEncoder.processIdentification(response) != ProgramType.NODE) {
+                    log("Error de identificación del servidor: " + response.getNumServicio());
                     return;
                 }
 
@@ -138,18 +139,18 @@ public class CelulaSolicitante extends Application {
                     try {
                         // we get the string from the button text because this function
                         // is applied to each button: + - * /
-                        Message.OperationType op = Message.OperationType.fromString(
+                        OperationType op = OperationType.fromString(
                                 btn.getText().trim()
                         ).orElseThrow(() -> new ParseException(btn.getText(), 0));
                         int n1 = Integer.parseInt(operand1Field.getText().trim());
                         int n2 = Integer.parseInt(operand2Field.getText().trim());
 
-                        if (op == Message.OperationType.DIV && n2 == 0) {
+                        if (op == OperationType.DIV && n2 == 0) {
                             log("No se puede dividir entre cero");
                             return;
                         }
 
-                        Message request = Message.buildRequest(op, n1, n2);
+                        Message request = Message.buildRequest(identifier,op, n1, n2);
                         DecoderEncoder.writeMsg(out, request);
                         this.lastRequestMsg = Optional.of(request);
 
@@ -176,9 +177,9 @@ public class CelulaSolicitante extends Application {
                 // the last request and the response we just received are the same:
                 // if so, the result will be displayed in the result box
                 boolean condition = lastRequestMsg.map(msg ->
-                        (responseMsg.getNumServicio() == Message.ServiceNumber.Result)
+                        (responseMsg.getNumServicio() == ServiceNumber.PrintResult)
                                 &&
-                                Arrays.equals(responseMsg.getHashMsg(), msg.getHashMsg())
+                                Arrays.equals(responseMsg.getHash(), msg.getHash())
                 ).orElse(false);
                 if (condition) {
                     writeRes("Resultado recibido: " + DecoderEncoder.processResult(responseMsg));

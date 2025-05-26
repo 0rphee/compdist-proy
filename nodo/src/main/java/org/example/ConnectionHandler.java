@@ -47,19 +47,19 @@ public class ConnectionHandler {
     }
 
     public static final class Connection {
-        private final Message.ProgramType type;
+        private final ProgramType type;
         private final Socket socket;
         private final DataOutputStream dataOutputStream;
         private final DataInputStream dataInputStream;
 
-        public Connection(Socket socket, Message.ProgramType programType) throws IOException {
+        public Connection(Socket socket, ProgramType programType) throws IOException {
             this.type = programType;
             this.socket = socket;
             this.dataInputStream = new DataInputStream(socket.getInputStream());
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
         }
 
-        public Connection(Message.ProgramType programType, Socket socket, DataInputStream dis, DataOutputStream dos) throws IOException {
+        public Connection(ProgramType programType, Socket socket, DataInputStream dis, DataOutputStream dos) throws IOException {
             this.type = programType;
             this.socket = socket;
             this.dataInputStream = dis;
@@ -78,7 +78,7 @@ public class ConnectionHandler {
             this.socket.close();
         }
 
-        public Message.ProgramType getType() {
+        public ProgramType getType() {
             return this.type;
         }
     }

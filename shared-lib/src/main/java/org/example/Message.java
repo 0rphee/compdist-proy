@@ -1,218 +1,115 @@
 package org.example;
 
-import org.json.JSONObject;
-
-import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
-import java.util.Optional;
-import java.util.Random;
 
 public class Message {
     /*
-    - Evento
-        - No. de servicio: 2 bytes
-        - Longitud de evento: 2 bytes
-        - Hash de evento: variable
-    - Información del mensaje
-        - Longitud del mensaje: 4 bytes
-        - Mensaje: variable
-
-    - 3 tipos de eventos:
-        - Identificación (0)
-            - Mensaje inicial que se envía para identificar un Nodo o una Célula en la red. Este
-            mensaje puede incluir información como el tipo de entidad (Nodo o Célula).
-        - Solicitud (1)
-            - Mensaje que se envía desde la Célula-Solicitante con una operación aritmética
-            (suma, resta, multiplicación o división) que debe ser procesada por una Célula-
-            Servidor. Este mensaje debe incluir la operación y los operandos.
-        - Resultado (2)
-            - Mensaje enviado por la Célula-Servidor con el resultado de la operación
-            solicitada. Este mensaje es procesado solo por la Célula-Solicitante que hizo la
-            solicitud, conteniendo el resultado de la operación aritmética.
+    - Encabezado
+        - Destinatario: 2 bytes. 0 - nodo, 1 - servidor, 2 - solicitante
+        - Huella: 8 bytes. Identificador único de nodo/celula.
+        - No. de servicio: 2 bytes. 0-ident, 1-suma, 2-resta, 3-mult, 4-div, 5-imprimir res, 99-ack
+    - Cuerpo
+        - Longitud de evento: 2 bytes.
+        - Hash de evento: variable. Hash de la información de servicio.
+        - Longitud de información de servicio: 4 bytes.
+        - Información nde servicio: variable. Contenido del mensaje: identificador, operandos de operaciones, resultado, acuse.
      */
-
-    // used to facilitate operations regarding the type of the entity/program in the identification phase
-    public enum ProgramType {
-        NODE() {
-            @Override
-            public String toSingleString() {
-                return "N";
-            }
-        },
-        SERVER() {
-            @Override
-            public String toSingleString() {
-                return "S";
-            }
-        },
-        SOLICITANT() {
-            @Override
-            public String toSingleString() {
-                return "O";
-            }
-        };
-
-        public abstract String toSingleString();
-
-        public static Optional<ProgramType> fromString(String str) {
-            return switch (str) {
-                case "N" -> Optional.of(ProgramType.NODE);
-                case "S" -> Optional.of(ProgramType.SERVER);
-                case "O" -> Optional.of(ProgramType.SOLICITANT);
-                default -> Optional.empty();
-            };
-        }
-
-        public String toString() {
-            return switch (this) {
-                case NODE -> "Node";
-                case SERVER -> "Server";
-                case SOLICITANT -> "Solicitant";
-            };
-        }
-    }
-
-    // used to facilitate operations regarding the service number of each message (ex. serializing/deserializing)
-    public enum ServiceNumber {
-        Identification,
-        Request,
-        Result;
-
-        public short toShort() {
-            return switch (this) {
-                case ServiceNumber.Identification -> 0;
-                case ServiceNumber.Request -> 1;
-                case ServiceNumber.Result -> 2;
-            };
-        }
-
-        public static Optional<ServiceNumber> fromShort(short number) {
-            return switch (number) {
-                case 0 -> Optional.of(ServiceNumber.Identification);
-                case 1 -> Optional.of(ServiceNumber.Request);
-                case 2 -> Optional.of(ServiceNumber.Result);
-                default -> Optional.empty();
-            };
-        }
-
-        public String toString() {
-            return switch (this) {
-                case ServiceNumber.Identification -> "Identification (0)";
-                case ServiceNumber.Request -> "Request (1)";
-                case ServiceNumber.Result -> "Result (2)";
-            };
-        }
-    }
-
-    public enum OperationType {
-        ADD,
-        SUB,
-        MUL,
-        DIV;
-
-        public static Optional<OperationType> fromString(String str) {
-            return switch (str) {
-                case "+" -> Optional.of(OperationType.ADD);
-                case "-" -> Optional.of(OperationType.SUB);
-                case "*" -> Optional.of(OperationType.MUL);
-                case "/" -> Optional.of(OperationType.DIV);
-                default -> Optional.empty();
-            };
-        }
-
-        public String toString() {
-            return switch (this) {
-                case OperationType.ADD -> "+";
-                case OperationType.SUB -> "-";
-                case OperationType.MUL -> "*";
-                case OperationType.DIV -> "/";
-            };
-        }
-    }
-
+    // ======================================= CAMPOS =======================================
     // número de servicio de solicitud: Identification, Request, Result
-    private ServiceNumber numServicio;
+    private final ProgramType receiver; // 2 bytes
+    private final byte[] senderIdentifier; // 8 bytes
+    private final ServiceNumber numServicio; // 2 bytes
     // hash del mensaje original (solicitud), usado para identificar respuestas
-    private byte[] hashMsg;
-    // información del mensaje (mensaje en sí) en JSON
-    // Identification: tipo de conexión (nodo, servidor, solicitante)
-    // Request: operador y operandos
-    // Result: resultado
-    private byte[] informacion;
+    // la longitud del hash se calcula a la hora de serializar
+    private final byte[] hash; // longitud hash 2 bytes + hash variable
+    // información del mensaje (mensaje en sí)
+    // la longitud de la información se calcula a la hora de serializar
+    private final byte[] informacion; // longitud de información 4 bytes + información variable
 
-    public byte[] getHashMsg() {
-        return hashMsg;
+    // ======================================= CAMPOS =======================================
+    public ProgramType getReceiver() {
+        return receiver;
     }
 
-    public void setHashMsg(byte[] hashMsg) {
-        this.hashMsg = hashMsg;
+    public byte[] getHash() {
+        return hash;
+    }
+
+    public byte[] getSenderIdentifier() {
+        return senderIdentifier;
     }
 
     public ServiceNumber getNumServicio() {
         return numServicio;
     }
 
-    public void setNumServicio(ServiceNumber numServicio) {
-        this.numServicio = numServicio;
-    }
-
     public byte[] getInformacion() {
         return informacion;
     }
 
-    public void setInformacion(byte[] informacion) {
-        this.informacion = informacion;
-    }
-
-    public Message(ServiceNumber numServicio, byte[] hashMsg, byte[] informacion) {
+    public Message(ProgramType receiver, byte[] senderIdentifier, ServiceNumber numServicio, byte[] hash, byte[] informacion) {
+        this.receiver = receiver;
+        this.senderIdentifier = senderIdentifier;
         this.numServicio = numServicio;
-        this.hashMsg = hashMsg;
+        this.hash = hash;
         this.informacion = informacion;
     }
 
-    public static Message buildIdentify(ProgramType thisProgramType) {
-        JSONObject json = new JSONObject();
-        String jsonString = json.put("t", thisProgramType.toSingleString()).toString();
-        byte[] jsonArr = jsonString.getBytes(StandardCharsets.UTF_8);
-        return new Message(ServiceNumber.Identification, DecoderEncoder.sha256(jsonArr), jsonArr);
+    public static Message buildIdentify(ProgramType thisProgramType, byte[] senderIdentifier, ProgramType receiver) throws IOException {
+        byte[] infoArr = new byte[]{thisProgramType.toByte()};
+        return new Message(receiver, senderIdentifier, ServiceNumber.Identification, Utils.sha256(infoArr), infoArr);
     }
 
-    public static Message buildRequest(OperationType operand, int n1, int n2) {
-        JSONObject json = new JSONObject();
-        json.put("op", operand.toString());
-        json.put("n1", n1);
-        json.put("n2", n2);
-//        System.out.println("Request: " + json.toString());
-        byte[] jsonString = json.toString().getBytes(StandardCharsets.UTF_8);
-        return new Message(ServiceNumber.Request, DecoderEncoder.sha256(jsonString), jsonString);
+    public static Message buildRequest(byte[] senderIdentifier, OperationType operand, int n1, int n2) throws IOException {
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream(8);
+        {
+            DataOutputStream dataStream = new DataOutputStream(byteStream);
+            dataStream.writeInt(n1);
+            dataStream.writeInt(n2);
+            dataStream.flush();
+        }
+        byte[] infoArr = byteStream.toByteArray();
+        ServiceNumber serviceNumber = switch (operand) {
+            case ADD -> ServiceNumber.Addition;
+            case SUB -> ServiceNumber.Subtraction;
+            case MUL -> ServiceNumber.Multiplication;
+            case DIV -> ServiceNumber.Division;
+        };
+        return new Message(ProgramType.SERVER, senderIdentifier, serviceNumber, Utils.sha256(infoArr), infoArr);
     }
 
-    public static Message buildResult(int res, byte[] requestHash) {
-        JSONObject json = new JSONObject();
-        json.put("res", res);
-        return new Message(ServiceNumber.Result, requestHash, json.toString().getBytes(StandardCharsets.UTF_8));
+    public static Message buildResult(byte[] senderIdentifier, int res, byte[] requestHash) throws IOException {
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream(2 + requestHash.length + 4);
+        {
+            DataOutputStream dataStream = new DataOutputStream(byteStream);
+            dataStream.writeShort(requestHash.length);
+            dataStream.write(requestHash);
+            dataStream.writeInt(res);
+            dataStream.flush();
+        }
+        byte[] infoArr = byteStream.toByteArray();
+        return new Message(ProgramType.SOLICITANT, senderIdentifier, ServiceNumber.PrintResult, Utils.sha256(infoArr), infoArr);
     }
 
-    // general helper methods
+    public static Message buildAck(ProgramType receiver, byte[] senderIdentifier, byte[] eventoOriginalHash) throws IOException {
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream(2 + eventoOriginalHash.length);
+        {
+            DataOutputStream dataStream = new DataOutputStream(byteStream);
+            dataStream.writeShort(eventoOriginalHash.length);
+            dataStream.write(eventoOriginalHash);
+            dataStream.flush();
+        }
+        byte[] infoArr = byteStream.toByteArray();
+        return new Message(receiver, senderIdentifier, ServiceNumber.Ack, Utils.sha256(infoArr), infoArr);
+    }
+
     public String toString() {
-        String s = "Message: " +
-                " ServiceNumber: " + this.numServicio.toString() +
-                " hashMsg: " + Arrays.toString(this.hashMsg);
-        String b = " informacion: " + bytesToString(this.informacion);
-        return s + b;
+        return String.format("Message { receiver: %s; senderIdentifier: %s; numServicio: %s; hash: %s; informacion %s}", this.receiver, Arrays.toString(this.senderIdentifier), this.numServicio, Arrays.toString(this.hash), Arrays.toString(this.informacion));
     }
 
-    public static String bytesToString(byte[] b) {
-        return new String(b, StandardCharsets.UTF_8);
-    }
-
-    static final int[] nodePorts = {31010, 31011, 31012, 31013};
-
-    public static int getRandomNodePort() {
-        Random random = new Random();
-        int randomIndex = random.nextInt(Message.nodePorts.length);
-        return nodePorts[randomIndex];
-    }
 }
 
 
