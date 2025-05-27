@@ -7,6 +7,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
+import org.javatuples.Pair;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -97,11 +98,12 @@ public class CelulaSolicitante extends Application {
                 log("Conectando a " + HOST + ":" + port + "...");
 
                 this.socket = new Socket(HOST, port);
+                this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
                 this.out = new DataOutputStream(socket.getOutputStream());
                 this.in = new DataInputStream(socket.getInputStream());
 
                 // Identify and check node identification
-                Message ident = Message.buildIdentify(ProgramType.SOLICITANT, identifier,  ProgramType.NODE);
+                Message ident = Message.buildIdentify(ProgramType.SOLICITANT, identifier, ProgramType.NODE);
                 DecoderEncoder.writeMsg(this.out, ident);
 
                 Message response = DecoderEncoder.readMsg(this.in);
@@ -150,7 +152,7 @@ public class CelulaSolicitante extends Application {
                             return;
                         }
 
-                        Message request = Message.buildRequest(identifier,op, n1, n2);
+                        Message request = Message.buildRequest(identifier, op, n1, n2);
                         DecoderEncoder.writeMsg(out, request);
                         this.lastRequestMsg = Optional.of(request);
 
@@ -167,7 +169,7 @@ public class CelulaSolicitante extends Application {
         );
     }
 
-    // listen to responses, and
+    // listen to responses, and write them to the result box
     private void listenForResponses() {
         try {
             while (!this.socket.isClosed()) {
@@ -176,13 +178,20 @@ public class CelulaSolicitante extends Application {
                 // check that if there's a pending answer, the last received msg is a result, and that the hashes of
                 // the last request and the response we just received are the same:
                 // if so, the result will be displayed in the result box
-                boolean condition = lastRequestMsg.map(msg ->
-                        (responseMsg.getNumServicio() == ServiceNumber.PrintResult)
-                                &&
-                                Arrays.equals(responseMsg.getHash(), msg.getHash())
+                final Pair<byte[], Integer>[] res = new Pair[1];
+                boolean condition = lastRequestMsg.map(lastRequestMsgSent -> {
+                            try {
+                                res[0] = DecoderEncoder.processResult(responseMsg);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                            return (responseMsg.getNumServicio() == ServiceNumber.PrintResult)
+                                    &&
+                                    Arrays.equals(res[0].getValue0(), lastRequestMsgSent.getHash());
+                        }
                 ).orElse(false);
                 if (condition) {
-                    writeRes("Resultado recibido: " + DecoderEncoder.processResult(responseMsg));
+                    writeRes("Resultado recibido: " + res[0].getValue1());
                     this.lastRequestMsg = Optional.empty();
                 }
             }

@@ -6,8 +6,6 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 public class DecoderEncoder {
     public static void writeMsg(DataOutputStream dos, Message msg) throws IOException {
@@ -27,8 +25,6 @@ public class DecoderEncoder {
         dos.writeInt(bytesInfo.length);
         // (variable) información/mensaje
         dos.write(bytesInfo);
-
-        System.out.println("msgggg "+ msg.toString());
     }
 
     public static Message readMsg(DataInputStream dis) throws IOException {
@@ -87,6 +83,7 @@ public class DecoderEncoder {
         // variable
         byte[] requestEventHash = new byte[hashLen];
         dis.readFully(requestEventHash);
+        // 4 bytes
         int res = dis.readInt();
         return new Pair<byte[], Integer>(requestEventHash, res);
     }
