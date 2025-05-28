@@ -1,8 +1,13 @@
 package org.example;
 
+import java.io.IOException;
+import java.net.ConnectException;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Random;
 
 public class Utils {
@@ -40,5 +45,29 @@ public class Utils {
 
     public static String bytesToString(byte[] b) {
         return new String(b, StandardCharsets.UTF_8);
+    }
+    public static String byteArrayToHexString(byte[] byteArray) {
+        HexFormat hex = HexFormat.of();
+        return hex.formatHex(byteArray);
+    }
+    public static Socket cellTryToCreateSocket(String HOST, int nodePort, int delay) throws InterruptedException {
+        Socket socket;
+        do {
+            System.out.println("Intento de crear socket");
+            try {
+                socket = new Socket(HOST, nodePort);
+                System.out.print("Socket creado");
+                break;
+            } catch (ConnectException e) {
+                e.printStackTrace();
+                Thread.sleep(delay);
+                System.out.println("Espera de " + delay + "ms");
+            } catch (UnknownHostException e) {
+                throw new RuntimeException(e);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        } while (true);
+        return socket;
     }
 }

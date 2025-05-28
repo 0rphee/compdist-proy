@@ -94,5 +94,14 @@ public class DecoderEncoder {
                 () -> new RuntimeException("Invalid byte in identification message: " + value)
         );
     }
-
+    // returns the hash of the original event
+    public static byte[] processAck(Message msg) throws IOException {
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(msg.getInformacion()));
+        // 2 bytes
+        short hashLen = dis.readShort();
+        // variable
+        byte[] hash = new byte[hashLen];
+        dis.readFully(hash);
+        return hash;
+    }
 }

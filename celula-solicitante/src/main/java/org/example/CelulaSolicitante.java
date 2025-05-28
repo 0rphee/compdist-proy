@@ -7,30 +7,27 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
-import org.javatuples.Pair;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.text.ParseException;
-import java.util.Arrays;
-import java.util.Optional;
 
 public class CelulaSolicitante extends Application {
     private static final String HOST = "localhost";
     private static byte[] identifier;
+    private static final MessageManager.ClientMessageManager messageManager = new MessageManager.ClientMessageManager();
+
+    private Socket socket;
+    private DataOutputStream out;
+    private DataInputStream in;
 
     private Button[] operationButtons;
     private TextField operand1Field;
     private TextField operand2Field;
     private TextField resultArea;
     private TextArea logArea;
-
-    private Socket socket;
-    private DataOutputStream out;
-    private DataInputStream in;
-    private Optional<Message> lastRequestMsg = Optional.empty();
 
     @Override
     public void start(Stage primaryStage) {
@@ -92,12 +89,12 @@ public class CelulaSolicitante extends Application {
         new Thread(() -> {
             try {
                 // Initial delay
-                Thread.sleep(5000);
-
+                int delay =5000;
+                Thread.sleep(delay);
                 int port = Utils.getRandomNodePort();
-                log("Conectando a " + HOST + ":" + port + "...");
 
-                this.socket = new Socket(HOST, port);
+                log("Conectando a " + HOST + ":" + port + "...");
+                this.socket = Utils.cellTryToCreateSocket(HOST, port, delay);
                 this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
                 this.out = new DataOutputStream(socket.getOutputStream());
                 this.in = new DataInputStream(socket.getInputStream());
@@ -110,10 +107,30 @@ public class CelulaSolicitante extends Application {
                 if (response.getNumServicio() != ServiceNumber.Identification ||
                         DecoderEncoder.processIdentification(response) != ProgramType.NODE) {
                     log("Error de identificación del servidor: " + response.getNumServicio());
+                    System.exit(1);
                     return;
                 }
 
+                CelulaSolicitante cel = this;
+                MessageManager.Logger logger = new MessageManager.Logger() {
+                    @Override
+                    public void log(String str) {
+                        cel.log(str);
+                    }
+
+                    @Override
+                    public void showResult(String str) {
+                        cel.writeRes(str);
+                    }
+                };
+                // receiver thread
+                new Thread(() -> messageManager.receiverLoop(identifier, in, out, logger)).start();
+                // dispatcher thread
+                new Thread(() -> messageManager.dispatcherLoop(identifier, out)).start();
+                // Start response listener
+                // new Thread(this::listenForResponses).start();
                 // if the connection is correctly set up, we can request results
+
                 Platform.runLater(() -> {
                     for (Button btn : operationButtons) {
                         btn.setDisable(false);
@@ -121,9 +138,6 @@ public class CelulaSolicitante extends Application {
                 });
 
                 log("Conexión establecida exitosamente!");
-                // Start response listener
-                new Thread(this::listenForResponses).start();
-
             } catch (InterruptedException | IOException e) {
                 log("Error de conexión: " + e.getMessage());
             }
@@ -153,10 +167,11 @@ public class CelulaSolicitante extends Application {
                         }
 
                         Message request = Message.buildRequest(identifier, op, n1, n2);
-                        DecoderEncoder.writeMsg(out, request);
-                        this.lastRequestMsg = Optional.of(request);
 
-                        log("Solicitud enviada: " + request);
+                        this.messageManager.addMsgToDispatchQueue(request);
+                        // DecoderEncoder.writeMsg(out, request);
+                        // this.lastRequestMsg = Optional.of(request);
+                        log("Solicitud añadida a lista de salida: " + request);
                     } catch (ParseException e) {
                         // should never happen: operations come from hard-coded buttons
                         log("Operación no válida");
@@ -167,37 +182,6 @@ public class CelulaSolicitante extends Application {
                     }
                 }).start()
         );
-    }
-
-    // listen to responses, and write them to the result box
-    private void listenForResponses() {
-        try {
-            while (!this.socket.isClosed()) {
-                Message responseMsg = DecoderEncoder.readMsg(this.in);
-
-                // check that if there's a pending answer, the last received msg is a result, and that the hashes of
-                // the last request and the response we just received are the same:
-                // if so, the result will be displayed in the result box
-                final Pair<byte[], Integer>[] res = new Pair[1];
-                boolean condition = lastRequestMsg.map(lastRequestMsgSent -> {
-                            try {
-                                res[0] = DecoderEncoder.processResult(responseMsg);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                            return (responseMsg.getNumServicio() == ServiceNumber.PrintResult)
-                                    &&
-                                    Arrays.equals(res[0].getValue0(), lastRequestMsgSent.getHash());
-                        }
-                ).orElse(false);
-                if (condition) {
-                    writeRes("Resultado recibido: " + res[0].getValue1());
-                    this.lastRequestMsg = Optional.empty();
-                }
-            }
-        } catch (IOException e) {
-            log("Error recibiendo respuesta: " + e.getMessage());
-        }
     }
 
     private void writeRes(String message) {
@@ -216,4 +200,3 @@ public class CelulaSolicitante extends Application {
         launch(args);
     }
 }
-

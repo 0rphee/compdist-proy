@@ -43,7 +43,7 @@ public class ConnectionHandler {
             case NODE -> this.nodeConnections.remove(conn);
             default -> this.clientConnections.remove(conn);
         }
-        System.out.println("Removed connection" + conn.socket.getPort() + " of type: " + conn.type);
+        System.out.println("Removed connection " + conn.socket.getPort() + " of type: " + conn.type);
     }
 
     public static final class Connection {

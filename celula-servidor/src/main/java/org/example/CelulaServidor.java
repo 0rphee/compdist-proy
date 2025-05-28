@@ -7,13 +7,13 @@ import java.net.Socket;
 public class CelulaServidor {
     private static final String HOST = "localhost";
     private static byte[] identifier;
-
-    public CelulaServidor(){
-        identifier = Utils.createIdentifier(HOST, Utils.getRandomNodePort());
+    private static Socket socket;
+    private static final MessageManager.ServerMessageManager messageManager = new MessageManager.ServerMessageManager();
+    public CelulaServidor() {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        CelulaServidor celulaServidor= new CelulaServidor();
+        CelulaServidor celulaServidor = new CelulaServidor();
         celulaServidor.start(args);
     }
 
@@ -21,32 +21,20 @@ public class CelulaServidor {
         if (args.length < 1) {
             System.err.println("Usage: CelulaServidor <PORT>");
         }
-        // TODO
-        // int port = Integer.parseInt(args[0]);
-        int port = Utils.getRandomNodePort();
+        int nodePort = Utils.getRandomNodePort();
         int delay = 5_000;
         Thread.sleep(delay);
-
-
         // preparation for identification with node
-        Socket socket;
-        do {
-            try {
-             socket = new Socket(HOST, port);
-             break;
-            } catch (ConnectException e) {
-                e.printStackTrace();
-                Thread.sleep(delay);
-            }
-        } while(true);
+        socket = Utils.cellTryToCreateSocket(HOST, nodePort, delay);
+        identifier = Utils.createIdentifier(HOST, socket.getLocalPort());
 
-        DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-        DataInputStream in = new DataInputStream(socket.getInputStream());
+        DataOutputStream socketOutStream = new DataOutputStream(socket.getOutputStream());
+        DataInputStream socketInStream = new DataInputStream(socket.getInputStream());
 
         // identification between cell and node
         Message identMsg = Message.buildIdentify(ProgramType.SERVER, identifier, ProgramType.NODE);
-        DecoderEncoder.writeMsg(out, identMsg);
-        Message nodeIdentMsg = DecoderEncoder.readMsg(in);
+        DecoderEncoder.writeMsg(socketOutStream, identMsg);
+        Message nodeIdentMsg = DecoderEncoder.readMsg(socketInStream);
 
         if (nodeIdentMsg.getNumServicio() != ServiceNumber.Identification) {
             System.err.println("Número de servicio incorrecto, primer mensaje debió ser identificación: " + nodeIdentMsg.getNumServicio().toString());
@@ -56,21 +44,16 @@ public class CelulaServidor {
             System.err.println("Conexión a identidad distinta a 'nodo'");
             System.exit(1);
         }
-        System.out.println("Conectado exitosamente a: " + HOST + ":" + port);
+        System.out.println("Conectado exitosamente a: " + HOST + ":" + nodePort);
 
-        while (true) {
-            Message req = DecoderEncoder.readMsg(in);
-
-            System.out.println("Recibiendo msj: \n" + req);
-            if (req.getNumServicio().isRequestToServer()) {
-                int res = DecoderEncoder.processRequest(req);
-                Message respMsg = Message.buildResult(identifier, res, req.getHash());
-                DecoderEncoder.writeMsg(out, respMsg);
-                System.out.println("Respondiendo con res: \n" + respMsg);
-                System.out.println("!!!!");
+        // Start receiver thread
+        new Thread(() -> messageManager.receiverLoop(identifier, socketInStream, socketOutStream, new MessageManager.Logger() {
+            @Override
+            public void showResult(String str) {
+                System.out.println(str);
             }
-        }
-
+        }), "Server-receiverLoop").start();
+        // Start dispatcher
+        new Thread(() -> messageManager.dispatcherLoop(identifier, socketOutStream), "Server-dispatcherLoop").start();
     }
-
 }

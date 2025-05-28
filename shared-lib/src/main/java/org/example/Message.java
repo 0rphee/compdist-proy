@@ -107,7 +107,7 @@ public class Message {
     }
 
     public String toString() {
-        return String.format("Message { receiver: %s; senderIdentifier: %s; numServicio: %s; hash: %s; informacion %s}", this.receiver, Arrays.toString(this.senderIdentifier), this.numServicio, Arrays.toString(this.hash), Arrays.toString(this.informacion));
+        return String.format("Message { receiver: %s; senderIdentifier: %s; numServicio: %s; hash: %s; informacion %s}", this.receiver, Utils.byteArrayToHexString(this.senderIdentifier), this.numServicio, Utils.byteArrayToHexString(this.hash), Arrays.toString(this.informacion));
     }
 
 }
