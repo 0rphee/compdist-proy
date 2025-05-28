@@ -1,7 +1,6 @@
 package org.example;
 
 import java.io.*;
-import java.net.ConnectException;
 import java.net.Socket;
 
 public class CelulaServidor {

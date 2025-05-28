@@ -128,8 +128,6 @@ public class CelulaSolicitante extends Application {
                 // dispatcher thread
                 new Thread(() -> messageManager.dispatcherLoop(identifier, out)).start();
                 // Start response listener
-                // new Thread(this::listenForResponses).start();
-                // if the connection is correctly set up, we can request results
 
                 Platform.runLater(() -> {
                     for (Button btn : operationButtons) {

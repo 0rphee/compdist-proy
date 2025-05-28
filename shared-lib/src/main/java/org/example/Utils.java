@@ -52,16 +52,17 @@ public class Utils {
     }
     public static Socket cellTryToCreateSocket(String HOST, int nodePort, int delay) throws InterruptedException {
         Socket socket;
+        int tryCount = 1;
         do {
-            System.out.println("Intento de crear socket");
+            System.out.printf("Intento %d de crear socket\n", tryCount);
             try {
                 socket = new Socket(HOST, nodePort);
-                System.out.print("Socket creado");
                 break;
             } catch (ConnectException e) {
+                tryCount += 1;
                 e.printStackTrace();
-                Thread.sleep(delay);
                 System.out.println("Espera de " + delay + "ms");
+                Thread.sleep(delay);
             } catch (UnknownHostException e) {
                 throw new RuntimeException(e);
             } catch (IOException e) {

@@ -5,6 +5,7 @@ import org.javatuples.Pair;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -14,7 +15,7 @@ public abstract class MessageManager {
     // Map of queues for messages awaiting attention/processing, separated by ServiceNumber
     protected final Map<ServiceNumber, LinkedHashSet<Message>> sendingQueues;
     private static final int MAX_PENDING_ACKS = 10;
-    private static final int WAIT_MILIS = 15_000;
+    private static final int WAIT_MILIS = 5_000;
 
     MessageManager(Set<ServiceNumber> serviceNumbers) {
         this.sendingQueues = new ConcurrentHashMap<>();
@@ -23,8 +24,9 @@ public abstract class MessageManager {
         }
     }
 
-    public void addMsgToWaitingForAckList(Message msg){
+    public void addMsgToWaitingForAckList(Message msg) {
         waitingForAckMsgs.add(msg);
+        // printWaitingForAckMsgState();
     }
 
     public void sendMessagesWaitingForAck(DataOutputStream outStream) throws IOException {
@@ -34,24 +36,41 @@ public abstract class MessageManager {
     }
 
     public void registerAck(byte[] originalMsgHash) {
-        waitingForAckMsgs.removeIf((msg) ->{
-            if (Arrays.equals(msg.getHash(), originalMsgHash)){
+        waitingForAckMsgs.removeIf((msg) -> {
+            if (Arrays.equals(msg.getHash(), originalMsgHash)) {
                 System.out.println("Mensaje eliminado de espera de Ack (" + Utils.byteArrayToHexString(originalMsgHash) + ")");
                 return true;
             } else
                 System.out.println("Mensaje no está en lista de espera de Ack (" + Utils.byteArrayToHexString(originalMsgHash) + ")");
-                return false;
+            return false;
         });
+        // printWaitingForAckMsgState();
+    }
+
+    public void printWaitingForAckMsgState() {
         System.out.println("Estado de waitingForAckMsgs: {");
-        for (Message msg : waitingForAckMsgs){
+        for (Message msg : waitingForAckMsgs) {
             System.out.println(" - " + Utils.byteArrayToHexString(msg.getHash()));
         }
         System.out.println("}");
     }
 
+    public void printDispatchQueuesState() {
+        System.out.println("Estado de dispatchQueues: {");
+        for (Map.Entry<ServiceNumber, LinkedHashSet<Message>> entry : sendingQueues.entrySet()) {
+            System.out.println("  Estado:" + entry.getKey() + " {");
+            for (Message msg : entry.getValue()) {
+                System.out.println("    - " + Utils.byteArrayToHexString(msg.getHash()));
+            }
+            System.out.println("  }");
+        }
+        System.out.println("}");
+    }
+
+
     public void addMsgToDispatchQueue(Message msg) {
         LinkedHashSet queue = sendingQueues.get(msg.getNumServicio());
-        if (queue.contains(msg)) {
+        if (!queue.contains(msg)) {
             sendingQueues.get(msg.getNumServicio()).addLast(msg);
         }
     }
@@ -91,21 +110,22 @@ public abstract class MessageManager {
                     continue;
                 }
                 // If there are not too many Acks waiting, we send the messages in the sending queues.
+//                System.out.println("Antes de enviar mensajes");
+//                printDispatchQueuesState();
                 for (Map.Entry<ServiceNumber, LinkedHashSet<Message>> entry : this.sendingQueues.entrySet()) {
                     ServiceNumber serviceNumber = entry.getKey();
                     LinkedHashSet<Message> queue = entry.getValue();
-                    System.out.println("Fila de " + serviceNumber + " tiene "+ queue.size() +" items");
-                    if (queue.isEmpty()){
+                    if (queue.isEmpty()) {
                         continue;
                     }
-                    Message nextMsgToSend = queue.getFirst();
-                    System.out.println("Servidor - Despachando mensaje " + Utils.byteArrayToHexString(nextMsgToSend.getHash()) + " (" + serviceNumber + ").");
+                    Message nextMsgToSend = queue.removeFirst();
+                    System.out.println("Servidor - Despachando mensaje: " + serviceNumber + " (" + Utils.byteArrayToHexString(nextMsgToSend.getHash()) + ")");
                     if (serviceNumber == ServiceNumber.PrintResult) {
                         try {
                             DecoderEncoder.writeMsg(outStream, nextMsgToSend);
-                            System.out.println("Servidor - Respondiendo con resultado para: " + Utils.byteArrayToHexString(nextMsgToSend.getHash())); // + ": " + res);
+                            System.out.println("Servidor - Respondiendo con resultado para: " + Utils.byteArrayToHexString(nextMsgToSend.getHash()));
                             this.addMsgToWaitingForAckList(nextMsgToSend);
-                            System.out.println("Servidor - Mensaje añadido a lista de espera de Acks: " + Utils.byteArrayToHexString(nextMsgToSend.getHash())); // + ": " + res);
+                            System.out.println("Servidor - Mensaje añadido a lista de espera de Acks (" + Utils.byteArrayToHexString(nextMsgToSend.getHash()) + ")");
                         } catch (IOException e) {
                             System.err.println("Error en hilo de despacho del servidor (" + Utils.byteArrayToHexString(cellIdentifier) + ") al enviar resultado: " + e.getMessage());
                         }
@@ -113,6 +133,8 @@ public abstract class MessageManager {
                         System.out.println("Servidor - OTRO MENSAJE, no se hizo nada.");
                     }
                 }
+//                System.out.println("Tras envío de mensajes");
+//                printDispatchQueuesState();
 
                 try {
                     Thread.sleep(MessageManager.WAIT_MILIS); // Small delay before checking queues again
@@ -139,7 +161,7 @@ public abstract class MessageManager {
                             // Send ACK immediately upon receiving a request
                             Message ackMsg = Message.buildAck(ProgramType.SOLICITANT, cellIdentifier, req.getHash());
                             DecoderEncoder.writeMsg(socketOutStream, ackMsg);
-                            logger.log("Servidor - Enviando ACK para " + Utils.byteArrayToHexString(req.getHash()));
+                            logger.log("Servidor - Enviando ACK de request original con hash: " + Utils.byteArrayToHexString(req.getHash()));
                             // Build result message
                             int res = DecoderEncoder.processRequest(req);
                             Message responseMsg = Message.buildResult(cellIdentifier, res, req.getHash());
@@ -149,7 +171,7 @@ public abstract class MessageManager {
                             break;
                         case Ack:
                             byte[] originalMsgHash = DecoderEncoder.processAck(req);
-                            logger.log("Servidor - Recibido ACK: " + Utils.byteArrayToHexString(originalMsgHash));
+                            logger.log("Servidor - Recibido ACK, con contenido: " + Utils.byteArrayToHexString(originalMsgHash));
                             this.registerAck(originalMsgHash);
                             break;
                         case Identification:
@@ -168,6 +190,25 @@ public abstract class MessageManager {
     }
 
     public static final class ClientMessageManager extends MessageManager {
+        private static final Set<ByteBuffer> lastMsgsToWaitResult = ConcurrentHashMap.newKeySet();
+
+        public void addMsgHashToWaitResultSet(byte[] originalMsgHash) {
+            System.out.println("Client - Hash stored: " + Utils.byteArrayToHexString(originalMsgHash));
+            lastMsgsToWaitResult.add(ByteBuffer.wrap(originalMsgHash));
+        }
+
+        public void removeMsgHashToWaitResultSet(byte[] originalMsgHash) {
+            lastMsgsToWaitResult.removeIf((hash) -> Arrays.equals(hash.array(), originalMsgHash));
+        }
+        public void printlastMsgsToWaitResultState() {
+            System.out.println("Estado de lastMessagesToWaitResult: {");
+            for (ByteBuffer hash : lastMsgsToWaitResult) {
+                System.out.println(" - " + Utils.byteArrayToHexString(hash.array()));
+            }
+            System.out.println("}");
+        }
+
+
         ClientMessageManager() {
             super(Set.of(new ServiceNumber[]{ServiceNumber.Addition, ServiceNumber.Subtraction, ServiceNumber.Multiplication, ServiceNumber.Division}));
         }
@@ -190,22 +231,27 @@ public abstract class MessageManager {
                     continue;
                 }
                 // If there are not too many Acks waiting, we send the messages in the sending queues.
+//                System.out.println("Antes de enviar mensajes");
+//                printDispatchQueuesState();
                 for (Map.Entry<ServiceNumber, LinkedHashSet<Message>> entry : this.sendingQueues.entrySet()) {
-                    ServiceNumber _serviceNumber = entry.getKey();
+                    ServiceNumber serviceNumber = entry.getKey();
                     LinkedHashSet<Message> queue = entry.getValue();
-                    if (queue.isEmpty()){
+                    if (queue.isEmpty()) {
                         continue;
                     }
-                    Message nextMsgToSend = queue.getFirst();
-                    System.out.println("Cliente - Despachando mensaje: " + Utils.byteArrayToHexString(nextMsgToSend.getHash())); // + " para procesamiento (" + serviceNumber + ").");
+                    Message nextMsgToSend = queue.removeFirst();
+                    System.out.println("Cliente - Despachando " + serviceNumber + " (" + Utils.byteArrayToHexString(nextMsgToSend.getHash()) + ")");
                     try {
                         DecoderEncoder.writeMsg(outStream, nextMsgToSend);
                         this.addMsgToWaitingForAckList(nextMsgToSend);
-                        System.out.println("Cliente - Mensaje añadido a lista de espera de Acks: " + Utils.byteArrayToHexString(nextMsgToSend.getHash())); // + ": " + res);
+                        this.addMsgHashToWaitResultSet(nextMsgToSend.getHash());
+                        System.out.println("Cliente - Mensaje añadido a lista de espera de Acks (" + Utils.byteArrayToHexString(nextMsgToSend.getHash()) + ")");
                     } catch (IOException e) {
                         System.err.println("Error en hilo de despacho del cliente (" + Utils.byteArrayToHexString(cellIdentifier) + ") al enviar resultado: " + e.getMessage());
                     }
                 }
+//                System.out.println("Tras envío de mensajes");
+//                printDispatchQueuesState();
 
                 try {
                     Thread.sleep(MessageManager.WAIT_MILIS); // Small delay before checking queues again
@@ -233,22 +279,30 @@ public abstract class MessageManager {
                             break;
                         case Ack:
                             byte[] originalMsgHash = DecoderEncoder.processAck(req);
-                            logger.log("Cliente - Recibido ACK de: " + Utils.byteArrayToHexString(originalMsgHash));
+                            logger.log("Cliente - Recibido ACK, con contenido: " + Utils.byteArrayToHexString(originalMsgHash));
                             this.registerAck(originalMsgHash);
                             break;
                         case Identification:
-                            // logger.log("Cliente - Recibida identificación de: " + DecoderEncoder.processIdentification(req));
+                            logger.log("Cliente - Recibida identificación de: " + DecoderEncoder.processIdentification(req));
                             break;
                         case PrintResult:
-                            logger.log("Cliente - Recibido PrintResult: " + Utils.byteArrayToHexString(req.getHash()));
                             // Responder con ACK
                             Pair<byte[], Integer> resPair = DecoderEncoder.processResult(req);
                             logger.log("Cliente - PrintResult hash acompañante: " + Utils.byteArrayToHexString(resPair.getValue0()));
                             Message ackMsg = Message.buildAck(ProgramType.SERVER, cellIdentifier, req.getHash());
                             DecoderEncoder.writeMsg(socketOutStream, ackMsg);
                             logger.log("Cliente - Enviando ACK para " + Utils.byteArrayToHexString(req.getHash()));
+
+                            printlastMsgsToWaitResultState();
+
                             // Mostrar resultado en la interfaz
-                            logger.showResult(resPair.getValue1().toString());
+                            ByteBuffer byteBuffer =  ByteBuffer.wrap(resPair.getValue0());
+                            boolean condition = lastMsgsToWaitResult.contains(byteBuffer);
+                            System.out.println("Cliente - condition: " + condition);
+                            if (condition) {
+                                this.removeMsgHashToWaitResultSet(resPair.getValue0());
+                                logger.showResult(resPair.getValue1().toString());
+                            }
                             break;
                     }
                 } catch (IOException e) {
