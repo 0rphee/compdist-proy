@@ -1,5 +1,8 @@
 package org.example;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.*;
 import java.net.*;
 import java.util.Arrays;
@@ -7,6 +10,7 @@ import java.util.Random;
 
 
 public class Nodo {
+    private static final Logger LOGGER = LogManager.getLogger(Nodo.class);
     private static final String HOST = "localhost";
     private byte[] identifier;
 
@@ -26,17 +30,17 @@ public class Nodo {
 
         // available ports to setup ServerSocket
         // int[] portsavailable
-        ConnectionHandler connectionHandler = new ConnectionHandler();
+        ConnectionHandler connectionHandler = new ConnectionHandler(LOGGER);
 
-        System.out.println("PORTS: " + Arrays.toString(Utils.nodePorts));
+        LOGGER.info("PORTS: {}", Arrays.toString(Utils.nodePorts));
 
         /* Random delay to enable Node sync on startup */
         long delay = new Random().nextLong(1, 15) * 300 + 400;
-        System.out.println("Sleeping " + delay);
+        LOGGER.info("Sleeping {}ms", delay);
         Thread.sleep(delay);
 
         ServerSocket server = createServerSocket();
-        System.out.println("Node escuchando en " + server.getInetAddress() + ":" + server.getLocalPort() + "\n");
+        LOGGER.info("Node escuchando en {}:{}", server.getInetAddress(), server.getLocalPort());
         this.identifier = Utils.createIdentifier(HOST, server.getLocalPort());
 
         // connect to other nodes
@@ -44,7 +48,7 @@ public class Nodo {
             if (port == server.getLocalPort())
                 continue;
             try {
-                System.out.println("Trying to connect to " + HOST + ":" + port);
+                LOGGER.info("Trying to connect to " + HOST + ":{}", port);
                 Socket socket = new Socket(HOST, port);
                 DataInputStream in = new DataInputStream(socket.getInputStream());
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
@@ -55,9 +59,9 @@ public class Nodo {
                 ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(programType, socket, in, out);
                 connectionHandler.addConnection(currentNodeConn);
 
-                Thread currNodeConnectionThread = new Thread(() -> handle(connectionHandler, currentNodeConn));
+                Thread currNodeConnectionThread = new Thread(() -> handle(connectionHandler, currentNodeConn), "currNodeConnectionThread");
                 currNodeConnectionThread.start();
-                System.out.println("This node connected to node: " + port);
+                LOGGER.info("This node connected to node: {}", port);
             } catch (IOException ignored) {
             }
         }
@@ -76,14 +80,14 @@ public class Nodo {
                     ConnectionHandler.Connection currentNodeConn = new ConnectionHandler.Connection(programType, socket, in, out);
                     connectionHandler.addConnection(currentNodeConn);
 
-                    Thread handle = new Thread(() -> handle(connectionHandler, currentNodeConn));
+                    Thread handle = new Thread(() -> handle(connectionHandler, currentNodeConn), "handleThread");
                     handle.start();
-                    System.out.println("New connection received: " + socket.getPort() + ", " + programType);
+                    LOGGER.info("New connection received: {}, {}", socket.getPort(), programType);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
             }
-        });
+        }, "acceptingThread");
         acceptingThread.start();
         try {
             acceptingThread.join();
@@ -96,7 +100,7 @@ public class Nodo {
         while (true) {
             try {
                 Message msg = connection.readMsg();
-                System.out.println(msg);
+                LOGGER.info(msg);
                 switch (connection.getType()) {
                     case ProgramType.NODE:
                         // we don't send to other nodes because currently all nodes are connected with each other

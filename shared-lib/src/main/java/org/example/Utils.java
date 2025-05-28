@@ -1,9 +1,10 @@
 package org.example;
 
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.Socket;
-import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -43,29 +44,26 @@ public class Utils {
         return nodePorts[randomIndex];
     }
 
-    public static String bytesToString(byte[] b) {
-        return new String(b, StandardCharsets.UTF_8);
-    }
     public static String byteArrayToHexString(byte[] byteArray) {
         HexFormat hex = HexFormat.of();
         return hex.formatHex(byteArray);
     }
-    public static Socket cellTryToCreateSocket(String HOST, int nodePort, int delay) throws InterruptedException {
+    public static Socket cellTryToCreateSocket(String HOST, int nodePort, int delay, Logger LOGGER) throws InterruptedException {
         Socket socket;
         int tryCount = 1;
         do {
-            System.out.printf("Intento %d de crear socket\n", tryCount);
+            LOGGER.info("Intento {} de crear socket", tryCount);
             try {
                 socket = new Socket(HOST, nodePort);
                 break;
             } catch (ConnectException e) {
                 tryCount += 1;
-                e.printStackTrace();
-                System.out.println("Espera de " + delay + "ms");
+                LOGGER.error(e);
+                // e.printStackTrace();
+                LOGGER.error("Espera de {}ms", delay);
                 Thread.sleep(delay);
-            } catch (UnknownHostException e) {
-                throw new RuntimeException(e);
             } catch (IOException e) {
+                LOGGER.fatal(e);
                 throw new RuntimeException(e);
             }
         } while (true);

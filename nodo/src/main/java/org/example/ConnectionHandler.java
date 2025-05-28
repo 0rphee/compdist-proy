@@ -1,5 +1,7 @@
 package org.example;
 
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -8,10 +10,12 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ConnectionHandler {
+    private final Logger LOGGER;
     private final Set<Connection> nodeConnections;
     private final Set<Connection> clientConnections;
 
-    public ConnectionHandler() {
+    public ConnectionHandler(Logger logger) {
+        this.LOGGER = logger;
         this.nodeConnections = ConcurrentHashMap.newKeySet();
         this.clientConnections = ConcurrentHashMap.newKeySet();
     }
@@ -35,7 +39,7 @@ public class ConnectionHandler {
             case NODE -> this.nodeConnections.add(conn);
             default -> this.clientConnections.add(conn);
         }
-        // System.out.println("New connection of type: " + conn.type);
+        LOGGER.debug("New connection of type: " + conn.type);
     }
 
     public void removeConnection(Connection conn) {
@@ -43,7 +47,7 @@ public class ConnectionHandler {
             case NODE -> this.nodeConnections.remove(conn);
             default -> this.clientConnections.remove(conn);
         }
-        System.out.println("Removed connection " + conn.socket.getPort() + " of type: " + conn.type);
+        LOGGER.debug("Removed connection " + conn.socket.getPort() + " of type: " + conn.type);
     }
 
     public static final class Connection {

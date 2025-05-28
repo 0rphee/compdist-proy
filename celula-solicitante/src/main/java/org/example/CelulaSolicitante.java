@@ -7,6 +7,8 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -15,9 +17,10 @@ import java.net.Socket;
 import java.text.ParseException;
 
 public class CelulaSolicitante extends Application {
+    private static final Logger LOGGER = LogManager.getLogger(CelulaSolicitante.class);
     private static final String HOST = "localhost";
     private static byte[] identifier;
-    private static final MessageManager.ClientMessageManager messageManager = new MessageManager.ClientMessageManager();
+    private static final MessageManager.ClientMessageManager messageManager = new MessageManager.ClientMessageManager(LOGGER);
 
     private Socket socket;
     private DataOutputStream out;
@@ -89,12 +92,12 @@ public class CelulaSolicitante extends Application {
         new Thread(() -> {
             try {
                 // Initial delay
-                int delay =5000;
+                int delay = 5000;
                 Thread.sleep(delay);
                 int port = Utils.getRandomNodePort();
 
                 log("Conectando a " + HOST + ":" + port + "...");
-                this.socket = Utils.cellTryToCreateSocket(HOST, port, delay);
+                this.socket = Utils.cellTryToCreateSocket(HOST, port, delay, LOGGER);
                 this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
                 this.out = new DataOutputStream(socket.getOutputStream());
                 this.in = new DataInputStream(socket.getInputStream());
@@ -112,7 +115,7 @@ public class CelulaSolicitante extends Application {
                 }
 
                 CelulaSolicitante cel = this;
-                MessageManager.Logger logger = new MessageManager.Logger() {
+                MessageManager.Writer writer = new MessageManager.Writer() {
                     @Override
                     public void log(String str) {
                         cel.log(str);
@@ -124,9 +127,9 @@ public class CelulaSolicitante extends Application {
                     }
                 };
                 // receiver thread
-                new Thread(() -> messageManager.receiverLoop(identifier, in, out, logger)).start();
+                new Thread(() -> messageManager.receiverLoop(identifier, in, out, writer), "Client-receiverLoop").start();
                 // dispatcher thread
-                new Thread(() -> messageManager.dispatcherLoop(identifier, out)).start();
+                new Thread(() -> messageManager.dispatcherLoop(identifier, out),"Client-dispatcherLoop").start();
                 // Start response listener
 
                 Platform.runLater(() -> {
@@ -183,14 +186,18 @@ public class CelulaSolicitante extends Application {
     }
 
     private void writeRes(String message) {
-        Platform.runLater(() ->
-                resultArea.setText(message)
+        Platform.runLater(() -> {
+                    LOGGER.info("Resultado mostrado: {}", message);
+                    resultArea.setText(message);
+                }
         );
     }
 
     private void log(String message) {
-        Platform.runLater(() ->
-                logArea.appendText(message + "\n")
+        Platform.runLater(() -> {
+                    LOGGER.info(message);
+                    logArea.appendText(message + "\n");
+                }
         );
     }
 

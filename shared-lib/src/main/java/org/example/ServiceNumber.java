@@ -58,7 +58,7 @@ public enum ServiceNumber {
             case ServiceNumber.Multiplication -> "Multiplication (3)";
             case ServiceNumber.Division -> "Division (4)";
             case ServiceNumber.PrintResult -> "PrintResult (5)";
-            case ServiceNumber.Ack -> "Ack (6)";
+            case ServiceNumber.Ack -> "Ack (99)";
         };
     }
 }
