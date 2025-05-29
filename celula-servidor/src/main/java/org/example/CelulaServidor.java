@@ -27,38 +27,45 @@ public class CelulaServidor {
         if (args.length < 1) {
             System.err.println("Usage: CelulaServidor");
         }
+        // Selecciona un nodo aleatorio de la configuración para conectarse.
         Pair<String, Integer> node = Utils.getRandomNodePort(CONFIG.NODES);
         String nodeHost = node.getValue0();
         int nodePort = node.getValue1();
+
+        // Espera configurada antes de intentar la conexión.
         Thread.sleep(CONFIG.CELL_CONN_DELAY_MILIS);
-        // preparation for identification with node
-        socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER);
-        identifier = Utils.createIdentifier(HOST, socket.getLocalPort());
+
+        // Preparación para la identificación con el nodo.
+        socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER); // Intenta crear el socket con reintentos.
+        identifier = Utils.createIdentifier(HOST, socket.getLocalPort()); // Crea un identificador único para esta célula servidora.
 
         DataOutputStream socketOutStream = new DataOutputStream(socket.getOutputStream());
         DataInputStream socketInStream = new DataInputStream(socket.getInputStream());
 
-        // identification between cell and node
+        // Identificación entre la célula y el nodo.
+        // Construye y envía un mensaje de identificación al nodo.
         Message identMsg = Message.buildIdentify(ProgramType.SERVER, identifier, ProgramType.NODE);
         DecoderEncoder.writeMsg(socketOutStream, identMsg);
-        Message nodeIdentMsg = DecoderEncoder.readMsg(socketInStream);
+        Message nodeIdentMsg = DecoderEncoder.readMsg(socketInStream); // Lee la respuesta de identificación del nodo.
 
+        // Verifica que el primer mensaje del nodo sea de identificación.
         if (nodeIdentMsg.getNumServicio() != ServiceNumber.Identification) {
             LOGGER.fatal("Número de servicio incorrecto, primer mensaje debió ser identificación: {}", nodeIdentMsg.getNumServicio().toString());
             System.exit(1);
         }
+        // Verifica que el nodo se identifique como tal.
         if (DecoderEncoder.processIdentification(nodeIdentMsg) != ProgramType.NODE) {
             LOGGER.fatal("Conexión a identidad distinta a 'nodo'");
             System.exit(1);
         }
         LOGGER.info("Conectado exitosamente a: {}:{}", HOST, node);
 
-        // Start receiver thread
+        // Inicia el hilo receptor para procesar mensajes entrantes.
         new Thread(() -> messageManager.receiverLoop(identifier, socketInStream, socketOutStream, (v) -> {
-            LOGGER.info(v);
+            LOGGER.info(v); // Callback para mostrar resultados (el servidor solo haría log, pero nunca lo usa realmente).
             return null;
         }), "Server-receiverLoop").start();
-        // Start dispatcher
+        // Inicia el hilo despachador para enviar mensajes salientes.
         new Thread(() -> messageManager.dispatcherLoop(identifier, socketOutStream), "Server-dispatcherLoop").start();
     }
 }

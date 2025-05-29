@@ -11,13 +11,17 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+// Clase abstracta para gestionar la lógica de envío y recepción de mensajes.
 public abstract class MessageManager {
-    // Set to store hashes of processed messages to prevent duplicate processing
     protected final org.apache.logging.log4j.Logger LOGGER;
+    // Almacena mensajes enviados que están esperando un ACK (confirmación de recepción).
     private static final Set<Message> waitingForAckMsgs = ConcurrentHashMap.newKeySet();
-    // Map of queues for messages awaiting attention/processing, separated by ServiceNumber
+
+    // Colas de mensajes pendientes de ser enviados, organizadas por tipo de servicio.
     protected final Map<ServiceNumber, LinkedHashSet<Message>> sendingQueues;
+    // Máximo número de Acks pendientes antes de que el despachador priorice reenviar mensajes no confirmados.
     protected final int MAX_PENDING_ACKS;
+    // Tiempo de espera (en milisegundos) para el bucle del despachador.
     protected final int WAIT_MILIS;
 
     MessageManager(Set<ServiceNumber> serviceNumbers, org.apache.logging.log4j.Logger logger, int maxPendingAcks, int waitMilis) {
@@ -25,34 +29,36 @@ public abstract class MessageManager {
         this.MAX_PENDING_ACKS = maxPendingAcks;
         this.WAIT_MILIS = waitMilis;
         this.sendingQueues = new ConcurrentHashMap<>();
+        // Inicializa una cola para cada tipo de servicio que este manager manejará.
         for (ServiceNumber serviceNumber : serviceNumbers) {
-            this.sendingQueues.put(serviceNumber, new LinkedHashSet<>());
+            this.sendingQueues.put(serviceNumber, new LinkedHashSet<>()); // LinkedHashSet para mantener orden de inserción y evitar duplicados.
         }
     }
 
+    // Añade un mensaje a la lista de espera de ACK.
     public void addMsgToWaitingForAckList(Message msg) {
         waitingForAckMsgs.add(msg);
-        // printWaitingForAckMsgState();
     }
 
+    // Reenvía todos los mensajes que están esperando ACK.
     public void sendMessagesWaitingForAck(DataOutputStream outStream) throws IOException {
         for (Message msg : waitingForAckMsgs) {
             DecoderEncoder.writeMsg(outStream, msg);
         }
     }
 
+    // Registra la recepción de un ACK, eliminando el mensaje correspondiente de la lista de espera.
     public void registerAck(byte[] originalMsgHash) {
         waitingForAckMsgs.removeIf((msg) -> {
             if (Arrays.equals(msg.getHash(), originalMsgHash)) {
                 LOGGER.debug("Mensaje eliminado de espera de Ack ({})", Utils.byteArrayToHexString(originalMsgHash));
-                return true;
-            } else
-                LOGGER.debug("Mensaje no está en lista de espera de Ack ({})", Utils.byteArrayToHexString(originalMsgHash));
+                return true; // Condición para eliminar.
+            }
             return false;
         });
-        // printWaitingForAckMsgState();
     }
 
+    // Método para debugging.
     public void printWaitingForAckMsgState() {
         System.out.println("Estado de waitingForAckMsgs: {");
         for (Message msg : waitingForAckMsgs) {
@@ -61,6 +67,7 @@ public abstract class MessageManager {
         System.out.println("}");
     }
 
+    // Método para debugging.
     public void printDispatchQueuesState() {
         System.out.println("Estado de dispatchQueues: {");
         for (Map.Entry<ServiceNumber, LinkedHashSet<Message>> entry : sendingQueues.entrySet()) {
@@ -73,27 +80,33 @@ public abstract class MessageManager {
         System.out.println("}");
     }
 
-
+    // Añade un mensaje a la cola de despacho correspondiente a su tipo de servicio.
     public void addMsgToDispatchQueue(Message msg) {
         LinkedHashSet<Message> queue = sendingQueues.get(msg.getNumServicio());
-        if (!queue.contains(msg)) {
-            sendingQueues.get(msg.getNumServicio()).addLast(msg);
+        if (queue != null && !queue.contains(msg)) { // Evita duplicados en la cola.
+            queue.addLast(msg); // Añade al final de la cola.
+        } else if (queue == null) {
+            LOGGER.warn("No hay lista de despacho para este servicio: {}", msg.getNumServicio());
         }
     }
 
+    // Bucle principal del hilo despachador (implementación específica en subclases).
     public abstract void dispatcherLoop(byte[] cellIdentifier, DataOutputStream outStream);
 
+    // Bucle principal del hilo receptor (implementación específica en subclases).
     public abstract void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Function<String, Void> showResult);
 
+    // Implementación del MessageManager para el Servidor (CelulaServidor).
     public static final class ServerMessageManager extends MessageManager {
         ServerMessageManager(Logger logger, int maxPendingAcks, int waitMilis) {
-            super(Set.of(new ServiceNumber[]{ServiceNumber.PrintResult}), logger, maxPendingAcks, waitMilis);
+            // El servidor principalmente despacha mensajes de PrintResult.
+            super(Set.of(ServiceNumber.PrintResult), logger, maxPendingAcks, waitMilis);
         }
 
         @Override
         public void dispatcherLoop(byte[] cellIdentifier, DataOutputStream outStream) {
             while (true) {
-                // Check if there are more pending Acks than allowed
+                // Si hay demasiados Acks pendientes, prioriza reenviar esos mensajes.
                 if (waitingForAckMsgs.size() >= this.MAX_PENDING_ACKS) {
                     try {
                         this.sendMessagesWaitingForAck(outStream);
@@ -108,41 +121,32 @@ public abstract class MessageManager {
                     }
                     continue;
                 }
-                // If there are not too many Acks waiting, we send the messages in the sending queues.
-//                System.out.println("Antes de enviar mensajes");
-//                printDispatchQueuesState();
+
+                // Si no hay muchos Ack's pendientes, procesa las colas de envío normales.
                 for (Map.Entry<ServiceNumber, LinkedHashSet<Message>> entry : this.sendingQueues.entrySet()) {
                     ServiceNumber serviceNumber = entry.getKey();
                     LinkedHashSet<Message> queue = entry.getValue();
-                    if (queue.isEmpty()) {
-                        continue;
-                    }
-                    Message nextMsgToSend = queue.removeFirst();
+                    if (queue.isEmpty()) continue;
+
+                    Message nextMsgToSend = queue.removeFirst(); // Obtiene y remueve el primer mensaje.
                     LOGGER.info("Despachando mensaje: {} ({})", serviceNumber, Utils.byteArrayToHexString(nextMsgToSend.getHash()));
                     if (serviceNumber == ServiceNumber.PrintResult) {
                         try {
                             DecoderEncoder.writeMsg(outStream, nextMsgToSend);
                             LOGGER.info("Respondiendo con resultado para: {}", Utils.byteArrayToHexString(nextMsgToSend.getHash()));
-                            this.addMsgToWaitingForAckList(nextMsgToSend);
-                            LOGGER.info("Mensaje añadido a lista de espera de Acks ({})", Utils.byteArrayToHexString(nextMsgToSend.getHash()));
+                            this.addMsgToWaitingForAckList(nextMsgToSend); // Añade este resultado a la lista de espera de Acks
+                            LOGGER.info("Mensaje de resultadoo añadido a lista de espera de Acks ({})", Utils.byteArrayToHexString(nextMsgToSend.getHash()));
                         } catch (IOException e) {
                             LOGGER.fatal("Error en hilo de despacho del servidor ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
                             System.exit(1);
                         }
                     } else {
-                        LOGGER.info("OTRO MENSAJE, no se hizo nada.");
+                        LOGGER.info("OTRO MENSAJE (inesperado en Servidor): {}, no se hizo nada.", serviceNumber);
                     }
                 }
-//                LOGGER.info("Tras envío de mensajes");
-//                printDispatchQueuesState();
-
                 try {
-                    Thread.sleep(this.WAIT_MILIS); // Small delay before checking queues again
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    LOGGER.error("Hilo de despacho del servidor interrumpido durante la espera.");
-                    return;
-                }
+                    Thread.sleep(this.WAIT_MILIS);
+                } catch (InterruptedException e) { /* ... */ }
             }
         }
 
@@ -154,15 +158,13 @@ public abstract class MessageManager {
                     LOGGER.info("Recibiendo msj: {} ({})", req.getNumServicio(), Utils.byteArrayToHexString(req.getHash()));
 
                     switch (req.getNumServicio()) {
-                        case Addition:
-                        case Subtraction:
-                        case Multiplication:
-                        case Division:
-                            // Send Ack immediately upon receiving a request
+                        case Addition, Subtraction, Multiplication, Division: // Si es una solicitud de operación
+                            // Envía ACK inmediatamente.
                             Message ackMsg = Message.buildAck(ProgramType.SOLICITANT, cellIdentifier, req.getHash());
                             DecoderEncoder.writeMsg(socketOutStream, ackMsg);
                             LOGGER.info("Enviando Ack de request original con hash: {}", Utils.byteArrayToHexString(req.getHash()));
-                            // Build result message
+
+                            // Procesa la solicitud y construye el mensaje de resultado.
                             int res = DecoderEncoder.processRequest(req);
                             Message responseMsg = Message.buildResult(cellIdentifier, res, req.getHash());
                             // Add message to dispatch queue
@@ -189,22 +191,31 @@ public abstract class MessageManager {
         }
     }
 
+    // Implementación del MessageManager para el Cliente (CelulaSolicitante).
     public static final class ClientMessageManager extends MessageManager {
+        // Almacena hashes de las solicitudes enviadas por el cliente, para las cuales se espera un resultado.
+        // Se usa ByteBuffer porque byte[] no funciona bien como clave en Set/Map directamente (compara referencias, no contenido).
         private static final Set<ByteBuffer> lastMsgsToWaitResult = ConcurrentHashMap.newKeySet();
 
         ClientMessageManager(org.apache.logging.log4j.Logger logger, int maxPendingAcks, int waitMilis) {
-            super(Set.of(new ServiceNumber[]{ServiceNumber.Addition, ServiceNumber.Subtraction, ServiceNumber.Multiplication, ServiceNumber.Division}), logger, maxPendingAcks, waitMilis);
+            // El cliente despacha solicitudes de operaciones.
+            super(Set.of(ServiceNumber.Addition, ServiceNumber.Subtraction, ServiceNumber.Multiplication, ServiceNumber.Division), logger, maxPendingAcks, waitMilis);
         }
 
+        // Añade el hash de una solicitud enviada a la lista de espera de resultados.
         public void addMsgHashToWaitResultSet(byte[] originalMsgHash) {
-            LOGGER.debug("Hash almacenado: {}", Utils.byteArrayToHexString(originalMsgHash));
+            LOGGER.debug("Hash de solicitud almacenado para esperar resultado: {}", Utils.byteArrayToHexString(originalMsgHash));
+            // Envuelve el byte[] en ByteBuffer para asegurar que las comparaciones de pertenencia en el
+            // set funcionen con respecto al contenido del hash.
             lastMsgsToWaitResult.add(ByteBuffer.wrap(originalMsgHash));
         }
 
+        // Elimina un hash de la lista de espera de resultados (cuando el resultado llega).
         public void removeMsgHashToWaitResultSet(byte[] originalMsgHash) {
             lastMsgsToWaitResult.removeIf((hash) -> Arrays.equals(hash.array(), originalMsgHash));
         }
 
+        // Método para debugging.
         public void printlastMsgsToWaitResultState() {
             System.out.println("Estado de lastMessagesToWaitResult: {");
             for (ByteBuffer hash : lastMsgsToWaitResult) {
@@ -216,31 +227,24 @@ public abstract class MessageManager {
         @Override
         public void dispatcherLoop(byte[] cellIdentifier, DataOutputStream outStream) {
             while (true) {
-                // Check if there are more pending Acks than allowed
+                // Lógica similar al ServerMessageManager para manejar ACKs pendientes.
                 if (waitingForAckMsgs.size() >= this.MAX_PENDING_ACKS) {
                     try {
                         this.sendMessagesWaitingForAck(outStream);
                         Thread.sleep(this.WAIT_MILIS);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        LOGGER.fatal("Hilo de despacho del servidor interrumpido durante la espera.");
+                    } catch (InterruptedException | IOException e) { /* ... */
                         System.exit(1);
                         return;
-                    } catch (IOException e) {
-                        LOGGER.fatal("Error en hilo de despacho del servidor ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
-                        System.exit(1);
                     }
                     continue;
                 }
-                // If there are not too many Acks waiting, we send the messages in the sending queues.
-//                LOGGER.info("Antes de enviar mensajes");
-//                printDispatchQueuesState();
+
+                // Envía solicitudes de operación desde las colas.
                 for (Map.Entry<ServiceNumber, LinkedHashSet<Message>> entry : this.sendingQueues.entrySet()) {
                     ServiceNumber serviceNumber = entry.getKey();
                     LinkedHashSet<Message> queue = entry.getValue();
-                    if (queue.isEmpty()) {
-                        continue;
-                    }
+                    if (queue.isEmpty()) continue;
+
                     Message nextMsgToSend = queue.removeFirst();
                     LOGGER.info("Despachando {} ({})", serviceNumber, Utils.byteArrayToHexString(nextMsgToSend.getHash()));
                     try {
@@ -253,8 +257,6 @@ public abstract class MessageManager {
                         System.exit(1);
                     }
                 }
-//                LOGGER.info("Tras envío de mensajes");
-//                printDispatchQueuesState();
 
                 try {
                     Thread.sleep(this.WAIT_MILIS); // Small delay before checking queues again
@@ -271,18 +273,18 @@ public abstract class MessageManager {
         public void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Function<String, Void> showResult) {
             while (true) {
                 try {
+                    // Lee mensaje entrante.
                     Message req = DecoderEncoder.readMsg(socketInStream);
                     LOGGER.info("Recibiendo msj {} ({})", req.getNumServicio(), Utils.byteArrayToHexString(req.getHash()));
                     switch (req.getNumServicio()) {
-                        case Addition:
-                        case Subtraction:
-                        case Multiplication:
-                        case Division:
-                            // logger.log("Mensaje de solicitud inesperado: " + Utils.byteArrayToHexString(req.getHash()));
+                        case Addition, Subtraction, Multiplication, Division:
+                            // El cliente no debería recibir solicitudes.
+                            LOGGER.warn("Cliente recibió mensaje de solicitud inesperado: {}", req);
                             break;
                         case Ack:
+                            // ACK recibido (probablemente por una solicitud que envió el cliente).
                             byte[] originalMsgHash = DecoderEncoder.processAck(req);
-                            LOGGER.info("Recibido Ack con contenido: {}", Utils.byteArrayToHexString(originalMsgHash));
+                            LOGGER.info("Recibido Ack por el mensaje con hash: {}", Utils.byteArrayToHexString(originalMsgHash));
                             this.registerAck(originalMsgHash);
                             break;
                         case Identification:
@@ -294,18 +296,19 @@ public abstract class MessageManager {
                             LOGGER.info("PrintResult hash acompañante: {}", Utils.byteArrayToHexString(resPair.getValue0()));
                             Message ackMsg = Message.buildAck(ProgramType.SERVER, cellIdentifier, req.getHash());
                             DecoderEncoder.writeMsg(socketOutStream, ackMsg);
-                            LOGGER.info("Enviando Ack para {}", Utils.byteArrayToHexString(req.getHash()));
+                            LOGGER.info("Enviando Ack para el mensaje PrintResult con hash: {}", Utils.byteArrayToHexString(req.getHash()));
 
-                            // printlastMsgsToWaitResultState();
-                            // Mostrar resultado en la interfaz
-                            ByteBuffer byteBuffer = ByteBuffer.wrap(resPair.getValue0());
-                            if (lastMsgsToWaitResult.contains(byteBuffer)) {
+                            // Verifica si este resultado corresponde a una solicitud pendiente.
+                            ByteBuffer requestHashByteBuffer = ByteBuffer.wrap(resPair.getValue0());
+                            if (lastMsgsToWaitResult.contains(requestHashByteBuffer)) {
                                 String resStr = resPair.getValue1().toString();
-                                LOGGER.info("Resultado mostrado en la interfaz: {}", resStr);
+                                LOGGER.info("Resultado correspondiente a solicitud previa. Mostrando en UI: {}", resStr);
                                 this.removeMsgHashToWaitResultSet(resPair.getValue0());
+                                // Llama a la función para mostrar el resultado en la UI.
                                 showResult.apply(resStr);
                             } else {
-                                LOGGER.info("Resultado no está en la cola de solicitudes de operaciones por recibir respuesta");
+                                LOGGER.warn("Resultado recibido ({}) pero no se esperaba o ya fue procesado. Hash de solicitud original: {}",
+                                        resPair.getValue1(), Utils.byteArrayToHexString(resPair.getValue0()));
                             }
                             break;
                     }

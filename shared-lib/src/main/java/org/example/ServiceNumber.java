@@ -2,29 +2,18 @@ package org.example;
 
 import java.util.Optional;
 
-// used to facilitate operations regarding the service number of each message (ex. serializing/deserializing)
+// Enum para facilitar las operaciones con el número de servicio de cada mensaje (ej. serializar/deserializar).
 public enum ServiceNumber {
-    Identification, // 0
-    Addition,       // 1
-    Subtraction,   // 2
-    Multiplication,  // 3
-    Division,       // 4
-    PrintResult,    // 5
-    Ack             // 99
+    Identification, // 0: Identificación de un componente.
+    Addition,       // 1: Operación de suma.
+    Subtraction,    // 2: Operación de resta.
+    Multiplication, // 3: Operación de multiplicación.
+    Division,       // 4: Operación de división.
+    PrintResult,    // 5: Mensaje con el resultado de una operación.
+    Ack             // 99: Mensaje de acuse de recibo (Acknowledgement).
     ;
 
-    public boolean isRequestToServer() {
-        return switch (this) {
-            case ServiceNumber.Addition:
-            case ServiceNumber.Subtraction:
-            case ServiceNumber.Multiplication:
-            case ServiceNumber.Division:
-                yield true;
-            default:
-                yield false;
-        };
-    }
-
+    // Convierte el tipo de servicio a su valor numérico (short) para la serialización.
     public short toShort() {
         return switch (this) {
             case ServiceNumber.Identification -> 0;
@@ -37,6 +26,7 @@ public enum ServiceNumber {
         };
     }
 
+    // Convierte un valor numérico (short), leído desde un mensaje, a un tipo de servicio.
     public static Optional<ServiceNumber> fromShort(short number) {
         return switch (number) {
             case 0 -> Optional.of(ServiceNumber.Identification);
@@ -50,6 +40,7 @@ public enum ServiceNumber {
         };
     }
 
+    // Devuelve una representación en texto del servicio, útil para logging.
     public String toString() {
         return switch (this) {
             case ServiceNumber.Identification -> "Identification (0)";

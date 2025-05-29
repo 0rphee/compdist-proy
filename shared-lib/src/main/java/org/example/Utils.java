@@ -42,7 +42,7 @@ public class Utils {
         Object[] nodePortsArr = nodePorts.toArray();
         Random random = new Random();
         int randomIndex = random.nextInt(nodePortsArr.length);
-        return (Pair<String,Integer>) nodePortsArr[randomIndex];
+        return (Pair<String, Integer>) nodePortsArr[randomIndex];
     }
 
     public static String byteArrayToHexString(byte[] byteArray) {

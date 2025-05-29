@@ -42,7 +42,7 @@ public class CelulaSolicitante extends Application {
         grid.setVgap(8);
         grid.setHgap(10);
 
-        // UI Components
+        // Componentes de la interfaz gráfica
         operationButtons = new Button[]{new Button("+"), new Button("-"), new Button("*"), new Button("/")};
         operand1Field = new TextField();
         operand2Field = new TextField();
@@ -66,16 +66,16 @@ public class CelulaSolicitante extends Application {
         Scene scene = new Scene(grid, 500, 400);
         primaryStage.setScene(scene);
 
-        // Disable buttons until connected
+        // Deshabilitar botones hasta estar conectado.
         for (Button btn : operationButtons) {
             btn.setDisable(true);
         }
 
-        // Setup connection and listeners
+        // Configurar conexión y listeners.
         setupConnection();
         setupEventHandlers();
 
-        // When window is closed
+        // Al cerrar la ventana.
         primaryStage.setOnCloseRequest(event -> {
             try {
                 if (socket != null) socket.close();
@@ -90,45 +90,48 @@ public class CelulaSolicitante extends Application {
     private void setupConnection() {
         new Thread(() -> {
             int intentos = 1;
+            // Bucle de intentos de conexión.
             while (intentos < 11) {
                 try {
-                    // Initial delay
+                    // Retraso inicial.
                     Thread.sleep(CONFIG.CELL_CONN_DELAY_MILIS);
+                    // Obtiene un nodo aleatorio para la conexión.
                     Pair<String, Integer> node = Utils.getRandomNodePort(CONFIG.NODES);
                     String nodeHost = node.getValue0();
                     int nodePort = node.getValue1();
 
                     LOGGER.info("Intento {}, conectando a {}:{}...", intentos, nodeHost, nodePort);
-                    this.socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER);
-                    this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
+                    this.socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER); // Intenta crear socket con reintentos.
+                    this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort()); // Crea identificador para esta célula solicitante.
                     this.out = new DataOutputStream(socket.getOutputStream());
                     this.in = new DataInputStream(socket.getInputStream());
 
-                    // Identify and check node identification
+                    // Identificarse y verificar la identificación del nodo.
                     Message ident = Message.buildIdentify(ProgramType.SOLICITANT, identifier, ProgramType.NODE);
                     DecoderEncoder.writeMsg(this.out, ident);
 
                     Message response = DecoderEncoder.readMsg(this.in);
+                    // Valida que la respuesta sea una identificación de un nodo.
                     if (response.getNumServicio() != ServiceNumber.Identification ||
                             DecoderEncoder.processIdentification(response) != ProgramType.NODE) {
                         LOGGER.fatal("Error de identificación del servidor: {}", response.getNumServicio());
-                        System.exit(1);
+                        System.exit(1); // Termina si la identificación falla.
                         return;
                     }
 
                     CelulaSolicitante cel = this;
-                    // receiver thread
+                    // Hilo receptor de mensajes.
                     new Thread(() -> messageManager.receiverLoop(identifier, in, out, cel::writeRes), "Client-receiverLoop").start();
-                    // dispatcher thread
+                    // Hilo despachador de mensajes.
                     new Thread(() -> messageManager.dispatcherLoop(identifier, out), "Client-dispatcherLoop").start();
-                    // Start response listener
 
+                    // Habilita los botones de operación en el hilo de la UI.
                     Platform.runLater(() -> {
                         for (Button btn : operationButtons)
                             btn.setDisable(false);
                     });
                     LOGGER.info("Conexión a nodo establecida exitosamente!");
-                    return;
+                    return; // Sale del bucle de intentos si la conexión es exitosa.
                 } catch (InterruptedException | IOException e) {
                     LOGGER.error("Error de conexión: {}", e.getMessage());
                 } finally {
@@ -147,30 +150,33 @@ public class CelulaSolicitante extends Application {
     }
 
     private void setupButtonEventHandler(Button btn) {
+        // Cada click de botón se maneja en un nuevo hilo.
         btn.setOnAction(event -> new Thread(() -> {
                     try {
-                        // we get the string from the button text because this function
-                        // is applied to each button: + - * /
+                        // Obtiene el tipo de operación del texto del botón.
                         OperationType op = OperationType.fromString(
                                 btn.getText().trim()
                         ).orElseThrow(() -> new ParseException(btn.getText(), 0));
                         int n1 = Integer.parseInt(operand1Field.getText().trim());
                         int n2 = Integer.parseInt(operand2Field.getText().trim());
 
+                        // Validación de división por cero.
                         if (op == OperationType.DIV && n2 == 0) {
                             String msg = "No se puede dividir entre cero";
                             LOGGER.error(msg);
+                            // Actualiza interfaz.
                             Platform.runLater(() -> this.warningArea.setText(msg));
                             return;
                         }
+                        // Construye el mensaje de solicitud.
                         Message request = Message.buildRequest(identifier, op, n1, n2);
+                        // Añade el mensaje a la cola de despacho.
                         this.messageManager.addMsgToDispatchQueue(request);
-                        // DecoderEncoder.writeMsg(out, request);
-                        // this.lastRequestMsg = Optional.of(request);
                         LOGGER.info("Solicitud añadida a lista de salida: {}", request);
+                        // Limpia advertencias en UI.
                         Platform.runLater(() -> this.warningArea.setText(""));
                     } catch (ParseException e) {
-                        // should never happen: operations come from hard-coded buttons
+                        // Esto no debería ocurrir ya que las operaciones vienen de botones predefinidos.
                         String msg = "Operación no válida";
                         LOGGER.error(msg);
                         Platform.runLater(() -> this.warningArea.setText(msg));
@@ -185,8 +191,10 @@ public class CelulaSolicitante extends Application {
         );
     }
 
+    // Método para escribir el resultado en la interfaz, llamado desde el hilo receptor.
     private Void writeRes(String message) {
         Platform.runLater(() -> {
+                    // Asegura que la actualización de la UI se haga en el hilo de JavaFX.
                     LOGGER.info("Resultado mostrado: {}", message);
                     resultArea.setText(message);
                 }

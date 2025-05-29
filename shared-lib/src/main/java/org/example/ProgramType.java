@@ -2,13 +2,14 @@ package org.example;
 
 import java.util.Optional;
 
-// used to facilitate operations regarding the type of the entity/program in the identification phase
+// Enum para facilitar las operaciones relativas al tipo de entidad/programa en la fase de identificación.
 public enum ProgramType {
     NODE() {
         @Override
         public byte toByte() {
             return 0;
         }
+
         @Override
         public short toShort() {
             return 0;
@@ -35,11 +36,14 @@ public enum ProgramType {
         }
     };
 
+    // Convierte el tipo de programa a su representación en byte para la serialización.
     public abstract byte toByte();
 
+    // Convierte el tipo de programa a su representación en short para la serialización.
     public abstract short toShort();
 
-    public static Optional<ProgramType> fromShort(short n){
+    // Convierte un valor numérico (short) de vuelta a un tipo de programa.
+    public static Optional<ProgramType> fromShort(short n) {
         return switch (n) {
             case 0 -> Optional.of(ProgramType.NODE);
             case 1 -> Optional.of(ProgramType.SERVER);
@@ -48,10 +52,12 @@ public enum ProgramType {
         };
     }
 
+    // Convierte un valor numérico (byte) de vuelta a un tipo de programa.
     public static Optional<ProgramType> fromByte(byte n) {
         return ProgramType.fromShort(n);
     }
 
+    // Proporciona una representación de texto legible para el tipo de programa.
     public String toString() {
         return switch (this) {
             case NODE -> "Node";
