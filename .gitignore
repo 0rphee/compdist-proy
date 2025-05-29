@@ -201,3 +201,4 @@ buildNumber.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/java,intellij,maven
 /shared-lib/src/main/resources/log4j2.xml
+/logs

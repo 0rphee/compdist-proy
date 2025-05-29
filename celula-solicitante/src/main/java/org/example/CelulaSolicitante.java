@@ -9,6 +9,7 @@ import javafx.scene.layout.GridPane;
 import javafx.stage.Stage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.javatuples.Pair;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -18,9 +19,10 @@ import java.text.ParseException;
 
 public class CelulaSolicitante extends Application {
     private static final Logger LOGGER = LogManager.getLogger(CelulaSolicitante.class);
+    private static final ConfigReader.Config CONFIG = ConfigReader.readConfig(LOGGER);
     private static final String HOST = "localhost";
-    private static byte[] identifier;
-    private static final MessageManager.ClientMessageManager messageManager = new MessageManager.ClientMessageManager(LOGGER);
+    private byte[] identifier;
+    private static final MessageManager.ClientMessageManager messageManager = new MessageManager.ClientMessageManager(LOGGER, CONFIG.MAX_PENDING_ACKS, CONFIG.SENDER_WAIT_MILIS);
 
     private Socket socket;
     private DataOutputStream out;
@@ -30,7 +32,7 @@ public class CelulaSolicitante extends Application {
     private TextField operand1Field;
     private TextField operand2Field;
     private TextField resultArea;
-    private TextArea logArea;
+    private TextField warningArea;
 
     @Override
     public void start(Stage primaryStage) {
@@ -45,11 +47,10 @@ public class CelulaSolicitante extends Application {
         operand1Field = new TextField();
         operand2Field = new TextField();
         resultArea = new TextField();
-        logArea = new TextArea();
+        warningArea = new TextField();
 
         resultArea.setEditable(false);
-        logArea.setEditable(false);
-        logArea.setWrapText(true);
+        warningArea.setEditable(true);
 
         GridPane gridOperationButtons = new GridPane();
         gridOperationButtons.setHgap(10);
@@ -61,8 +62,7 @@ public class CelulaSolicitante extends Application {
         grid.addRow(2, new Label("Operando 2:"), operand2Field);
         grid.add(new Label("Resultado"), 0, 3, 2, 1);
         grid.add(resultArea, 0, 4, 2, 1);
-        grid.add(new Label("Logs"), 0, 5, 2, 1);
-        grid.add(new ScrollPane(logArea), 0, 6, 2, 1);
+        grid.add(warningArea, 0, 4, 2, 1);
 
         Scene scene = new Scene(grid, 500, 400);
         primaryStage.setScene(scene);
@@ -90,58 +90,52 @@ public class CelulaSolicitante extends Application {
 
     private void setupConnection() {
         new Thread(() -> {
-            try {
-                // Initial delay
-                int delay = 5000;
-                Thread.sleep(delay);
-                int port = Utils.getRandomNodePort();
+            int intentos = 1;
+            while (intentos < 11) {
+                try {
+                    // Initial delay
+                    Thread.sleep(CONFIG.CELL_CONN_DELAY_MILIS);
+                    Pair<String, Integer> node = Utils.getRandomNodePort(CONFIG.NODES);
+                    String nodeHost = node.getValue0();
+                    int nodePort = node.getValue1();
 
-                log("Conectando a " + HOST + ":" + port + "...");
-                this.socket = Utils.cellTryToCreateSocket(HOST, port, delay, LOGGER);
-                this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
-                this.out = new DataOutputStream(socket.getOutputStream());
-                this.in = new DataInputStream(socket.getInputStream());
+                    LOGGER.info("Inntento {}, conectando a {}:{}...", intentos, nodeHost, nodePort);
+                    this.socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER);
+                    this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
+                    this.out = new DataOutputStream(socket.getOutputStream());
+                    this.in = new DataInputStream(socket.getInputStream());
 
-                // Identify and check node identification
-                Message ident = Message.buildIdentify(ProgramType.SOLICITANT, identifier, ProgramType.NODE);
-                DecoderEncoder.writeMsg(this.out, ident);
+                    // Identify and check node identification
+                    Message ident = Message.buildIdentify(ProgramType.SOLICITANT, identifier, ProgramType.NODE);
+                    DecoderEncoder.writeMsg(this.out, ident);
 
-                Message response = DecoderEncoder.readMsg(this.in);
-                if (response.getNumServicio() != ServiceNumber.Identification ||
-                        DecoderEncoder.processIdentification(response) != ProgramType.NODE) {
-                    log("Error de identificación del servidor: " + response.getNumServicio());
-                    System.exit(1);
+                    Message response = DecoderEncoder.readMsg(this.in);
+                    if (response.getNumServicio() != ServiceNumber.Identification ||
+                            DecoderEncoder.processIdentification(response) != ProgramType.NODE) {
+                        LOGGER.fatal("Error de identificación del servidor: {}", response.getNumServicio());
+                        System.exit(1);
+                        return;
+                    }
+
+                    CelulaSolicitante cel = this;
+                    // receiver thread
+                    new Thread(() -> messageManager.receiverLoop(identifier, in, out, cel::writeRes), "Client-receiverLoop").start();
+                    // dispatcher thread
+                    new Thread(() -> messageManager.dispatcherLoop(identifier, out), "Client-dispatcherLoop").start();
+                    // Start response listener
+
+                    Platform.runLater(() -> {
+                        for (Button btn : operationButtons)
+                            btn.setDisable(false);
+                    });
+                    LOGGER.info("Conexión a nodo establecida exitosamente!");
                     return;
+                } catch (InterruptedException | IOException e) {
+                    LOGGER.error("Error de conexión: " + e.getMessage());
                 }
-
-                CelulaSolicitante cel = this;
-                MessageManager.Writer writer = new MessageManager.Writer() {
-                    @Override
-                    public void log(String str) {
-                        cel.log(str);
-                    }
-
-                    @Override
-                    public void showResult(String str) {
-                        cel.writeRes(str);
-                    }
-                };
-                // receiver thread
-                new Thread(() -> messageManager.receiverLoop(identifier, in, out, writer), "Client-receiverLoop").start();
-                // dispatcher thread
-                new Thread(() -> messageManager.dispatcherLoop(identifier, out),"Client-dispatcherLoop").start();
-                // Start response listener
-
-                Platform.runLater(() -> {
-                    for (Button btn : operationButtons) {
-                        btn.setDisable(false);
-                    }
-                });
-
-                log("Conexión establecida exitosamente!");
-            } catch (InterruptedException | IOException e) {
-                log("Error de conexión: " + e.getMessage());
             }
+            LOGGER.fatal("Máximo número de intentos de conexión alcanzado. Cierre de aplicación.");
+            System.exit(1);
         }).start();
     }
 
@@ -163,45 +157,43 @@ public class CelulaSolicitante extends Application {
                         int n2 = Integer.parseInt(operand2Field.getText().trim());
 
                         if (op == OperationType.DIV && n2 == 0) {
-                            log("No se puede dividir entre cero");
+                            String msg = "No se puede dividir entre cero";
+                            LOGGER.error(msg);
+                            this.warningArea.setText(msg);
                             return;
                         }
-
                         Message request = Message.buildRequest(identifier, op, n1, n2);
-
                         this.messageManager.addMsgToDispatchQueue(request);
                         // DecoderEncoder.writeMsg(out, request);
                         // this.lastRequestMsg = Optional.of(request);
-                        log("Solicitud añadida a lista de salida: " + request);
+                        LOGGER.info("Solicitud añadida a lista de salida: {}", request);
+                        this.warningArea.setText("");
                     } catch (ParseException e) {
                         // should never happen: operations come from hard-coded buttons
-                        log("Operación no válida");
+                        String msg = "Operación no válida";
+                        LOGGER.error(msg);
+                        this.warningArea.setText(msg);
                     } catch (NumberFormatException e) {
-                        log("Los operandos deben ser números enteros");
+                        String msg = "Los operandos deben ser números enteros";
+                        LOGGER.error(msg);
+                        this.warningArea.setText(msg);
                     } catch (IOException e) {
-                        log("Error enviando solicitud: " + e.getMessage());
+                        LOGGER.error("Error enviando solicitud: {}", e.getMessage());
                     }
                 }).start()
         );
     }
 
-    private void writeRes(String message) {
+    private Void writeRes(String message) {
         Platform.runLater(() -> {
                     LOGGER.info("Resultado mostrado: {}", message);
                     resultArea.setText(message);
                 }
         );
-    }
-
-    private void log(String message) {
-        Platform.runLater(() -> {
-                    LOGGER.info(message);
-                    logArea.appendText(message + "\n");
-                }
-        );
+        return null;
     }
 
     public static void main(String[] args) {
-        launch(args);
+        javafx.application.Application.launch(args);
     }
 }

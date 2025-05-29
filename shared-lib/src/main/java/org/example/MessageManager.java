@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 public abstract class MessageManager {
     // Set to store hashes of processed messages to prevent duplicate processing
@@ -16,11 +17,13 @@ public abstract class MessageManager {
     private static final Set<Message> waitingForAckMsgs = ConcurrentHashMap.newKeySet();
     // Map of queues for messages awaiting attention/processing, separated by ServiceNumber
     protected final Map<ServiceNumber, LinkedHashSet<Message>> sendingQueues;
-    private static final int MAX_PENDING_ACKS = 10;
-    private static final int WAIT_MILIS = 5_000;
+    protected final int MAX_PENDING_ACKS;
+    protected final int WAIT_MILIS;
 
-    MessageManager(Set<ServiceNumber> serviceNumbers, org.apache.logging.log4j.Logger logger) {
+    MessageManager(Set<ServiceNumber> serviceNumbers, org.apache.logging.log4j.Logger logger, int maxPendingAcks, int waitMilis) {
         this.LOGGER = logger;
+        this.MAX_PENDING_ACKS = maxPendingAcks;
+        this.WAIT_MILIS = waitMilis;
         this.sendingQueues = new ConcurrentHashMap<>();
         for (ServiceNumber serviceNumber : serviceNumbers) {
             this.sendingQueues.put(serviceNumber, new LinkedHashSet<>());
@@ -78,28 +81,23 @@ public abstract class MessageManager {
         }
     }
 
-    public interface Writer {
-        void log(String str);
-        void showResult(String str);
-    }
-
     public abstract void dispatcherLoop(byte[] cellIdentifier, DataOutputStream outStream);
 
-    public abstract void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Writer writer);
+    public abstract void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Function<String, Void> showResult);
 
     public static final class ServerMessageManager extends MessageManager {
-        ServerMessageManager(Logger logger) {
-            super(Set.of(new ServiceNumber[]{ServiceNumber.PrintResult}), logger);
+        ServerMessageManager(Logger logger, int maxPendingAcks, int waitMilis) {
+            super(Set.of(new ServiceNumber[]{ServiceNumber.PrintResult}), logger, maxPendingAcks, waitMilis);
         }
 
         @Override
         public void dispatcherLoop(byte[] cellIdentifier, DataOutputStream outStream) {
             while (true) {
                 // Check if there are more pending Acks than allowed
-                if (waitingForAckMsgs.size() >= MessageManager.MAX_PENDING_ACKS) {
+                if (waitingForAckMsgs.size() >= this.MAX_PENDING_ACKS) {
                     try {
                         this.sendMessagesWaitingForAck(outStream);
-                        Thread.sleep(MessageManager.WAIT_MILIS);
+                        Thread.sleep(this.WAIT_MILIS);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         LOGGER.error("Hilo de despacho interrumpido durante la espera.");
@@ -137,7 +135,7 @@ public abstract class MessageManager {
 //                printDispatchQueuesState();
 
                 try {
-                    Thread.sleep(MessageManager.WAIT_MILIS); // Small delay before checking queues again
+                    Thread.sleep(this.WAIT_MILIS); // Small delay before checking queues again
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     LOGGER.error("Hilo de despacho del servidor interrumpido durante la espera.");
@@ -147,7 +145,7 @@ public abstract class MessageManager {
         }
 
         @Override
-        public void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Writer writer) {
+        public void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Function<String, Void> showResult) {
             while (true) {
                 try {
                     Message req = DecoderEncoder.readMsg(socketInStream);
@@ -161,24 +159,23 @@ public abstract class MessageManager {
                             // Send Ack immediately upon receiving a request
                             Message ackMsg = Message.buildAck(ProgramType.SOLICITANT, cellIdentifier, req.getHash());
                             DecoderEncoder.writeMsg(socketOutStream, ackMsg);
-                            writer.log("Enviando Ack de request original con hash: " + Utils.byteArrayToHexString(req.getHash()));
+                            LOGGER.info("Enviando Ack de request original con hash: {}", Utils.byteArrayToHexString(req.getHash()));
                             // Build result message
                             int res = DecoderEncoder.processRequest(req);
                             Message responseMsg = Message.buildResult(cellIdentifier, res, req.getHash());
                             // Add message to dispatch queue
                             this.addMsgToDispatchQueue(responseMsg);
-                            writer.log("Mensaje de respuesta añadido a fila de envío: " + Utils.byteArrayToHexString(req.getHash()));
+                            LOGGER.info("Mensaje de respuesta añadido a fila de envío: {}", Utils.byteArrayToHexString(req.getHash()));
                             break;
                         case Ack:
                             byte[] originalMsgHash = DecoderEncoder.processAck(req);
-                            writer.log("Recibido Ack, con contenido: " + Utils.byteArrayToHexString(originalMsgHash));
+                            LOGGER.info("Recibido Ack con contenido: {}", Utils.byteArrayToHexString(originalMsgHash));
                             this.registerAck(originalMsgHash);
                             break;
                         case Identification:
-                            writer.log("Recibida identificación de: " + DecoderEncoder.processIdentification(req));
+                            LOGGER.info("Recibida identificación de: ", DecoderEncoder.processIdentification(req));
                             break;
                         case PrintResult:
-                            // logger.log("Recibido PrintResult inesperado: " + Utils.byteArrayToHexString(req.getHash()));
                             break;
                     }
                 } catch (IOException e) {
@@ -192,12 +189,12 @@ public abstract class MessageManager {
     public static final class ClientMessageManager extends MessageManager {
         private static final Set<ByteBuffer> lastMsgsToWaitResult = ConcurrentHashMap.newKeySet();
 
-        ClientMessageManager(org.apache.logging.log4j.Logger logger) {
-            super(Set.of(new ServiceNumber[]{ServiceNumber.Addition, ServiceNumber.Subtraction, ServiceNumber.Multiplication, ServiceNumber.Division}), logger);
+        ClientMessageManager(org.apache.logging.log4j.Logger logger, int maxPendingAcks, int waitMilis) {
+            super(Set.of(new ServiceNumber[]{ServiceNumber.Addition, ServiceNumber.Subtraction, ServiceNumber.Multiplication, ServiceNumber.Division}), logger, maxPendingAcks, waitMilis);
         }
 
         public void addMsgHashToWaitResultSet(byte[] originalMsgHash) {
-            LOGGER.debug("Client - Hash stored: {}", Utils.byteArrayToHexString(originalMsgHash));
+            LOGGER.debug("Hash almacenado: {}", Utils.byteArrayToHexString(originalMsgHash));
             lastMsgsToWaitResult.add(ByteBuffer.wrap(originalMsgHash));
         }
 
@@ -217,10 +214,10 @@ public abstract class MessageManager {
         public void dispatcherLoop(byte[] cellIdentifier, DataOutputStream outStream) {
             while (true) {
                 // Check if there are more pending Acks than allowed
-                if (waitingForAckMsgs.size() >= MessageManager.MAX_PENDING_ACKS) {
+                if (waitingForAckMsgs.size() >= this.MAX_PENDING_ACKS) {
                     try {
                         this.sendMessagesWaitingForAck(outStream);
-                        Thread.sleep(MessageManager.WAIT_MILIS);
+                        Thread.sleep(this.WAIT_MILIS);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         LOGGER.fatal("Hilo de despacho del servidor interrumpido durante la espera.");
@@ -255,7 +252,7 @@ public abstract class MessageManager {
 //                printDispatchQueuesState();
 
                 try {
-                    Thread.sleep(MessageManager.WAIT_MILIS); // Small delay before checking queues again
+                    Thread.sleep(this.WAIT_MILIS); // Small delay before checking queues again
                 } catch (InterruptedException e) {
                     LOGGER.error("Hilo de despacho interrumpido durante la espera.");
                     Thread.currentThread().interrupt();
@@ -266,12 +263,11 @@ public abstract class MessageManager {
         }
 
         @Override
-        public void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Writer writer) {
+        public void receiverLoop(byte[] cellIdentifier, DataInputStream socketInStream, DataOutputStream socketOutStream, Function<String, Void> showResult) {
             while (true) {
                 try {
                     Message req = DecoderEncoder.readMsg(socketInStream);
-                    writer.log("Recibiendo msj: " + req.getNumServicio() + " - Hash: " + Utils.byteArrayToHexString(req.getHash()));
-
+                    LOGGER.info("Recibiendo msj {} ({})", req.getNumServicio(), Utils.byteArrayToHexString(req.getHash()));
                     switch (req.getNumServicio()) {
                         case Addition:
                         case Subtraction:
@@ -281,28 +277,26 @@ public abstract class MessageManager {
                             break;
                         case Ack:
                             byte[] originalMsgHash = DecoderEncoder.processAck(req);
-                            writer.log("Recibido Ack, con contenido: " + Utils.byteArrayToHexString(originalMsgHash));
+                            LOGGER.info("Recibido Ack con contenido: {}", Utils.byteArrayToHexString(originalMsgHash));
                             this.registerAck(originalMsgHash);
                             break;
                         case Identification:
-                            writer.log("Recibida identificación de: " + DecoderEncoder.processIdentification(req));
+                            LOGGER.info("Recibida identificación de: {}", DecoderEncoder.processIdentification(req));
                             break;
                         case PrintResult:
                             // Responder con Ack
                             Pair<byte[], Integer> resPair = DecoderEncoder.processResult(req);
-                            writer.log("PrintResult hash acompañante: " + Utils.byteArrayToHexString(resPair.getValue0()));
+                            LOGGER.info("PrintResult hash acompañante: {}", Utils.byteArrayToHexString(resPair.getValue0()));
                             Message ackMsg = Message.buildAck(ProgramType.SERVER, cellIdentifier, req.getHash());
                             DecoderEncoder.writeMsg(socketOutStream, ackMsg);
-                            writer.log("Enviando Ack para " + Utils.byteArrayToHexString(req.getHash()));
+                            LOGGER.info("Enviando Ack para {}", Utils.byteArrayToHexString(req.getHash()));
 
                             // printlastMsgsToWaitResultState();
                             // Mostrar resultado en la interfaz
                             ByteBuffer byteBuffer = ByteBuffer.wrap(resPair.getValue0());
-                            boolean condition = lastMsgsToWaitResult.contains(byteBuffer);
-                            LOGGER.debug("condition: {}", condition);
-                            if (condition) {
+                            if (lastMsgsToWaitResult.contains(byteBuffer)) {
                                 this.removeMsgHashToWaitResultSet(resPair.getValue0());
-                                writer.showResult(resPair.getValue1().toString());
+                                showResult.apply(resPair.getValue1().toString());
                             }
                             break;
                     }

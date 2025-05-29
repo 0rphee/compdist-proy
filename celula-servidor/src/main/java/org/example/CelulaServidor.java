@@ -2,16 +2,18 @@ package org.example;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.javatuples.Pair;
 
 import java.io.*;
 import java.net.Socket;
 
 public class CelulaServidor {
     private static final Logger LOGGER = LogManager.getLogger(CelulaServidor.class);
+    private static final ConfigReader.Config CONFIG = ConfigReader.readConfig(LOGGER);
     private static final String HOST = "localhost";
     private static byte[] identifier;
     private static Socket socket;
-    private static final MessageManager.ServerMessageManager messageManager = new MessageManager.ServerMessageManager(LOGGER);
+    private static final MessageManager.ServerMessageManager messageManager = new MessageManager.ServerMessageManager(LOGGER, CONFIG.MAX_PENDING_ACKS, CONFIG.SENDER_WAIT_MILIS);
 
     public CelulaServidor() {
     }
@@ -23,13 +25,14 @@ public class CelulaServidor {
 
     public void start(String[] args) throws IOException, InterruptedException {
         if (args.length < 1) {
-            System.err.println("Usage: CelulaServidor <PORT>");
+            System.err.println("Usage: CelulaServidor");
         }
-        int nodePort = Utils.getRandomNodePort();
-        int delay = 5_000;
-        Thread.sleep(delay);
+        Pair<String, Integer> node = Utils.getRandomNodePort(CONFIG.NODES);
+        String nodeHost = node.getValue0();
+        int nodePort = node.getValue1();
+        Thread.sleep(CONFIG.CELL_CONN_DELAY_MILIS);
         // preparation for identification with node
-        socket = Utils.cellTryToCreateSocket(HOST, nodePort, delay, LOGGER);
+        socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER);
         identifier = Utils.createIdentifier(HOST, socket.getLocalPort());
 
         DataOutputStream socketOutStream = new DataOutputStream(socket.getOutputStream());
@@ -48,19 +51,12 @@ public class CelulaServidor {
             LOGGER.fatal("Conexión a identidad distinta a 'nodo'");
             System.exit(1);
         }
-        LOGGER.info("Conectado exitosamente a: {}:{}", HOST, nodePort);
+        LOGGER.info("Conectado exitosamente a: {}:{}", HOST, node);
 
         // Start receiver thread
-        new Thread(() -> messageManager.receiverLoop(identifier, socketInStream, socketOutStream, new MessageManager.Writer() {
-            @Override
-            public void log(String str) {
-                LOGGER.info(str);
-            }
-
-            @Override
-            public void showResult(String str) {
-                LOGGER.info(str);
-            }
+        new Thread(() -> messageManager.receiverLoop(identifier, socketInStream, socketOutStream, (v) -> {
+            LOGGER.info(v);
+            return null;
         }), "Server-receiverLoop").start();
         // Start dispatcher
         new Thread(() -> messageManager.dispatcherLoop(identifier, socketOutStream), "Server-dispatcherLoop").start();

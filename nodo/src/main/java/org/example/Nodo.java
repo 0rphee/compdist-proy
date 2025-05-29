@@ -2,6 +2,7 @@ package org.example;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.javatuples.Pair;
 
 import java.io.*;
 import java.net.*;
@@ -11,10 +12,12 @@ import java.util.Random;
 
 public class Nodo {
     private static final Logger LOGGER = LogManager.getLogger(Nodo.class);
+    private static final ConfigReader.Config CONFIG = ConfigReader.readConfig(LOGGER);
     private static final String HOST = "localhost";
     private byte[] identifier;
 
-    Nodo(){}
+    Nodo() {
+    }
 
     public static void main(String[] args) throws InterruptedException {
         Nodo nodo = new Nodo();
@@ -23,33 +26,29 @@ public class Nodo {
 
     public void start(String[] args) throws InterruptedException {
         if (args.length < 1) {
-            System.err.println("Usage: CelulaSolicitante <PORT>");
+            System.err.println("Usage: Nodo");
         }
-        // TODO: port arg
-        // int port = Integer.parseInt(args[0]);
-
-        // available ports to setup ServerSocket
-        // int[] portsavailable
         ConnectionHandler connectionHandler = new ConnectionHandler(LOGGER);
 
-        LOGGER.info("PORTS: {}", Arrays.toString(Utils.nodePorts));
+        LOGGER.info("Nodos: {}", Arrays.toString(CONFIG.NODES.toArray()));
 
         /* Random delay to enable Node sync on startup */
         long delay = new Random().nextLong(1, 15) * 300 + 400;
-        LOGGER.info("Sleeping {}ms", delay);
+        LOGGER.info("Startup sleeping {}ms", delay);
         Thread.sleep(delay);
 
-        ServerSocket server = createServerSocket();
-        LOGGER.info("Node escuchando en {}:{}", server.getInetAddress(), server.getLocalPort());
+        ServerSocket server = createServerSocket(CONFIG.getNodePorts());
+
+        LOGGER.info("Nodo escuchando en {}:{}", server.getInetAddress(), server.getLocalPort());
         this.identifier = Utils.createIdentifier(HOST, server.getLocalPort());
 
         // connect to other nodes
-        for (int port : Utils.nodePorts) {
-            if (port == server.getLocalPort())
+        for (Pair<String, Integer> node : CONFIG.NODES) {
+            if (node.getValue1() == server.getLocalPort())
                 continue;
             try {
-                LOGGER.info("Trying to connect to " + HOST + ":{}", port);
-                Socket socket = new Socket(HOST, port);
+                LOGGER.info("Tratando de conectarse a {}:{}", node.getValue0(), node.getValue1());
+                Socket socket = new Socket(node.getValue0(), node.getValue1());
                 DataInputStream in = new DataInputStream(socket.getInputStream());
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                 DecoderEncoder.writeMsg(out, Message.buildIdentify(ProgramType.NODE, identifier, ProgramType.NODE));
@@ -61,7 +60,7 @@ public class Nodo {
 
                 Thread currNodeConnectionThread = new Thread(() -> handle(connectionHandler, currentNodeConn), "currNodeConnectionThread");
                 currNodeConnectionThread.start();
-                LOGGER.info("This node connected to node: {}", port);
+                LOGGER.info("Este nodo conectado a nodo: {}", node);
             } catch (IOException ignored) {
             }
         }
@@ -82,7 +81,7 @@ public class Nodo {
 
                     Thread handle = new Thread(() -> handle(connectionHandler, currentNodeConn), "handleThread");
                     handle.start();
-                    LOGGER.info("New connection received: {}, {}", socket.getPort(), programType);
+                    LOGGER.info("Nueva conexión recibida: {}, {}", socket.getPort(), programType);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -124,8 +123,8 @@ public class Nodo {
         }
     }
 
-    private static ServerSocket createServerSocket() {
-        for (int port : Utils.nodePorts) {
+    private static ServerSocket createServerSocket(int[] nodePorts) {
+        for (int port : nodePorts) {
             try {
                 return new ServerSocket(port);
             } catch (IOException ignored) {
