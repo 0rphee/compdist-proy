@@ -32,7 +32,7 @@ public class CelulaSolicitante extends Application {
     private TextField operand1Field;
     private TextField operand2Field;
     private TextField resultArea;
-    private TextField warningArea;
+    private Label warningArea;
 
     @Override
     public void start(Stage primaryStage) {
@@ -47,10 +47,9 @@ public class CelulaSolicitante extends Application {
         operand1Field = new TextField();
         operand2Field = new TextField();
         resultArea = new TextField();
-        warningArea = new TextField();
+        warningArea = new Label();
 
         resultArea.setEditable(false);
-        warningArea.setEditable(true);
 
         GridPane gridOperationButtons = new GridPane();
         gridOperationButtons.setHgap(10);
@@ -62,7 +61,7 @@ public class CelulaSolicitante extends Application {
         grid.addRow(2, new Label("Operando 2:"), operand2Field);
         grid.add(new Label("Resultado"), 0, 3, 2, 1);
         grid.add(resultArea, 0, 4, 2, 1);
-        grid.add(warningArea, 0, 4, 2, 1);
+        grid.add(warningArea, 0, 6, 2, 1);
 
         Scene scene = new Scene(grid, 500, 400);
         primaryStage.setScene(scene);
@@ -99,7 +98,7 @@ public class CelulaSolicitante extends Application {
                     String nodeHost = node.getValue0();
                     int nodePort = node.getValue1();
 
-                    LOGGER.info("Inntento {}, conectando a {}:{}...", intentos, nodeHost, nodePort);
+                    LOGGER.info("Intento {}, conectando a {}:{}...", intentos, nodeHost, nodePort);
                     this.socket = Utils.cellTryToCreateSocket(nodeHost, nodePort, CONFIG.CELL_CONN_DELAY_MILIS, LOGGER);
                     this.identifier = Utils.createIdentifier(HOST, this.socket.getLocalPort());
                     this.out = new DataOutputStream(socket.getOutputStream());
@@ -131,7 +130,9 @@ public class CelulaSolicitante extends Application {
                     LOGGER.info("Conexión a nodo establecida exitosamente!");
                     return;
                 } catch (InterruptedException | IOException e) {
-                    LOGGER.error("Error de conexión: " + e.getMessage());
+                    LOGGER.error("Error de conexión: {}", e.getMessage());
+                } finally {
+                    intentos += 1;
                 }
             }
             LOGGER.fatal("Máximo número de intentos de conexión alcanzado. Cierre de aplicación.");
@@ -159,7 +160,7 @@ public class CelulaSolicitante extends Application {
                         if (op == OperationType.DIV && n2 == 0) {
                             String msg = "No se puede dividir entre cero";
                             LOGGER.error(msg);
-                            this.warningArea.setText(msg);
+                            Platform.runLater(() -> this.warningArea.setText(msg));
                             return;
                         }
                         Message request = Message.buildRequest(identifier, op, n1, n2);
@@ -167,16 +168,16 @@ public class CelulaSolicitante extends Application {
                         // DecoderEncoder.writeMsg(out, request);
                         // this.lastRequestMsg = Optional.of(request);
                         LOGGER.info("Solicitud añadida a lista de salida: {}", request);
-                        this.warningArea.setText("");
+                        Platform.runLater(() -> this.warningArea.setText(""));
                     } catch (ParseException e) {
                         // should never happen: operations come from hard-coded buttons
                         String msg = "Operación no válida";
                         LOGGER.error(msg);
-                        this.warningArea.setText(msg);
+                        Platform.runLater(() -> this.warningArea.setText(msg));
                     } catch (NumberFormatException e) {
                         String msg = "Los operandos deben ser números enteros";
                         LOGGER.error(msg);
-                        this.warningArea.setText(msg);
+                        Platform.runLater(() -> this.warningArea.setText(msg));
                     } catch (IOException e) {
                         LOGGER.error("Error enviando solicitud: {}", e.getMessage());
                     }

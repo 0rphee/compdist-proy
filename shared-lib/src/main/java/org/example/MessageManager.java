@@ -104,6 +104,7 @@ public abstract class MessageManager {
                         return;
                     } catch (IOException e) {
                         LOGGER.error("Error en hilo de despacho ({}) al enviar resultado: ", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                        System.exit(1);
                     }
                     continue;
                 }
@@ -125,7 +126,8 @@ public abstract class MessageManager {
                             this.addMsgToWaitingForAckList(nextMsgToSend);
                             LOGGER.info("Mensaje añadido a lista de espera de Acks ({})", Utils.byteArrayToHexString(nextMsgToSend.getHash()));
                         } catch (IOException e) {
-                            LOGGER.error("Error en hilo de despacho del servidor ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                            LOGGER.fatal("Error en hilo de despacho del servidor ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                            System.exit(1);
                         }
                     } else {
                         LOGGER.info("OTRO MENSAJE, no se hizo nada.");
@@ -149,7 +151,7 @@ public abstract class MessageManager {
             while (true) {
                 try {
                     Message req = DecoderEncoder.readMsg(socketInStream);
-                    LOGGER.info("Recibiendo msj: {} ({})", req.getNumServicio(),  Utils.byteArrayToHexString(req.getHash()));
+                    LOGGER.info("Recibiendo msj: {} ({})", req.getNumServicio(), Utils.byteArrayToHexString(req.getHash()));
 
                     switch (req.getNumServicio()) {
                         case Addition:
@@ -179,7 +181,8 @@ public abstract class MessageManager {
                             break;
                     }
                 } catch (IOException e) {
-                    LOGGER.error("Error en hilo de recepción: {}", e.getMessage());
+                    LOGGER.fatal("Error en hilo de recepción: {}", e.getMessage());
+                    System.exit(1);
                     break;
                 }
             }
@@ -224,7 +227,8 @@ public abstract class MessageManager {
                         System.exit(1);
                         return;
                     } catch (IOException e) {
-                        LOGGER.error("Error en hilo de despacho del servidor ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                        LOGGER.fatal("Error en hilo de despacho del servidor ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                        System.exit(1);
                     }
                     continue;
                 }
@@ -245,7 +249,8 @@ public abstract class MessageManager {
                         this.addMsgHashToWaitResultSet(nextMsgToSend.getHash());
                         LOGGER.debug("Mensaje añadido a lista de espera de Acks ({})", Utils.byteArrayToHexString(nextMsgToSend.getHash()));
                     } catch (IOException e) {
-                        LOGGER.error("Error en hilo de despacho ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                        LOGGER.fatal("Error en hilo de despacho ({}) al enviar resultado: {}", Utils.byteArrayToHexString(cellIdentifier), e.getMessage());
+                        System.exit(1);
                     }
                 }
 //                LOGGER.info("Tras envío de mensajes");
@@ -254,7 +259,7 @@ public abstract class MessageManager {
                 try {
                     Thread.sleep(this.WAIT_MILIS); // Small delay before checking queues again
                 } catch (InterruptedException e) {
-                    LOGGER.error("Hilo de despacho interrumpido durante la espera.");
+                    LOGGER.fatal("Hilo de despacho interrumpido durante la espera.");
                     Thread.currentThread().interrupt();
                     System.exit(1);
                     return;
@@ -295,13 +300,18 @@ public abstract class MessageManager {
                             // Mostrar resultado en la interfaz
                             ByteBuffer byteBuffer = ByteBuffer.wrap(resPair.getValue0());
                             if (lastMsgsToWaitResult.contains(byteBuffer)) {
+                                String resStr = resPair.getValue1().toString();
+                                LOGGER.info("Resultado mostrado en la interfaz: {}", resStr);
                                 this.removeMsgHashToWaitResultSet(resPair.getValue0());
-                                showResult.apply(resPair.getValue1().toString());
+                                showResult.apply(resStr);
+                            } else {
+                                LOGGER.info("Resultado no está en la cola de solicitudes de operaciones por recibir respuesta");
                             }
                             break;
                     }
                 } catch (IOException e) {
                     LOGGER.error("Error en hilo de recepción del servidor: {}", e.getMessage());
+                    System.exit(1);
                 }
             }
         }
